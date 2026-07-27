@@ -191,4 +191,13 @@
     <string name="offset_warning">Modifie le comptage</string>
     <string name="settings_load_error">Échec du chargement des réglages depuis le Jetson</string>
     <string name="settings_save_error">Échec de l\'enregistrement des réglages vers le Jetson</string>
+
+    <!-- BL-77 — section « À propos » dans Réglages -->
+    <string name="section_about">À propos</string>
+    <string name="about_app_version">Application</string>
+    <string name="about_companion_version">Companion Jetson</string>
+    <string name="about_companion_offline">Hors ligne</string>
+    <string name="about_companion_loading">Récupération…</string>
+    <string name="about_companion_error">Indisponible</string>
+    <string name="about_refresh">Actualiser</string>
 </resources>
