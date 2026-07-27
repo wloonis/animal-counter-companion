@@ -278,6 +278,30 @@ object JetsonConnectionManager {
     }
 
     /**
+     * On-demand `GET /api/identify` (BL-77 About card) — a lightweight
+     * fetch that returns just the Jetson companion `version` string.
+     * Reuses the same IP resolution + WiFi-bound transport as [syncTime]
+     * and the dedicated [JetsonClient.identifyVersion] method (it does
+     * NOT touch the probe/`SyncLog` path, so it has zero counting/core
+     * impact). The returned version may be blank when the field is absent
+     * on the companion; the caller (Settings « À propos » card) treats a
+     * blank as offline/unavailable.
+     *
+     * @return [Result.success] with the version string on HTTP 200, or
+     *   [Result.failure] (no reachable Jetson, non-2xx HTTP, network error,
+     *   or an invalid identify body). Never throws.
+     */
+    suspend fun identifyVersion(): Result<String> {
+        val ip = resolveActiveIp() ?: return Result.failure(IllegalStateException("Jetson introuvable"))
+        val network = activeWifiNetworkSafe()
+        return when (val res = JetsonClient.identifyVersion(ip = ip, network = network)) {
+            is ApiResult.Success -> Result.success(res.data)
+            is ApiResult.HttpError -> Result.failure(IllegalStateException("HTTP ${res.code}"))
+            is ApiResult.NetworkError -> Result.failure(IllegalStateException(res.message))
+        }
+    }
+
+    /**
      * On-demand `GET /api/settings` (BL-76) — fetches the merged
      * `runtime-settings.json` from the Jetson (an empty object → an
      * all-`null` [JetsonSettings] when the file is absent). Reuses the same
