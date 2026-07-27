@@ -1,4 +1,4 @@
-# 11 — Persistent counting-session history (store) (BL-68)
+# 03 — Persistent counting-session history (store) (BL-68)
 
 An **append-only JSONL** counting-session history (`counting-history.jsonl`)
 written read-only from the `countingapp` pod onto the hostPath `/files`, with
@@ -7,7 +7,7 @@ to power cuts and bounded to ~200 MB on the small SSD. The store is exposed
 **read-only** to the Android app through the `jetson-companion` host service
 (BL-64, port 8090) v2 endpoints — the full HTTP API surface (sessions,
 summary, videos, video streaming) is documented in
-[`09_jetson_companion.md`](09_jetson_companion.md). This doc covers the
+[`01_jetson_companion.md`](01_jetson_companion.md). This doc covers the
 **store** internals: JSONL schema, writer, compaction, disk guard, settings.
 
 This implements [GitHub issue BL-68](https://github.com/wloonis/animal-counter/issues).
@@ -286,7 +286,7 @@ the image and is robust to K3s env drift.
 The store is served **read-only** to the Android app through the
 `jetson-companion` host service (BL-64, port 8090), bumped to **version `"2"`**
 (`GET /api/identify`). The full endpoint table + curl examples live in
-[`09_jetson_companion.md`](09_jetson_companion.md) § Endpoints (v2):
+[`01_jetson_companion.md`](01_jetson_companion.md) § Endpoints (v2):
 `/api/sessions`, `/api/sessions/<id>`, `/api/summary`, `/api/startups`,
 `/api/videos`, `/api/video/<id>` (range-streamed).
 
@@ -360,7 +360,7 @@ persisted history on the Jetson. The existing excludes (`model/`, `.env`,
 
 - **BL-64** — the `jetson-companion` host service (port 8090) whose v2
   endpoints serve this store read-only (see
-  [`09_jetson_companion.md`](09_jetson_companion.md)).
+  [`01_jetson_companion.md`](01_jetson_companion.md)).
 - **BL-65** — the Android app that connects to the Jetson HotSpot; the
   history endpoints give it a "what happened in the last N sessions?" view.
 - **BL-62** — the clean-shutdown (`stop()` / `arret_requested` / poweroff)

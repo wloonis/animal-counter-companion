@@ -1,7 +1,7 @@
-# 10 — Android companion app (BL-65/69/72/73/74)
+# 02 — Android companion app (BL-65/69/72/73/74)
 
 The Android app that talks to the **Jetson companion service**
-([`09_jetson_companion.md`](./09_jetson_companion.md)) over HTTP. It selects
+([`01_jetson_companion.md`](./01_jetson_companion.md)) over HTTP. It selects
 the Jetson IP by **probing** (`GET /api/identify`), shows a reachability
 banner, browses the Jetson-side counting history/videos, and — when the
 Jetson has no correct clock — lets the user push the phone's current time +
@@ -40,7 +40,7 @@ not an automatic push.
   deep-link), **Live count** (BL-69), **History** (BL-72, videos list +
   download/open), **Startups** (boot history), **Settings** (Jetson IP +
   time sync). Built incrementally; see
-  [`11_counting_history.md`](./11_counting_history.md) for the Jetson-side
+  [`03_counting_history.md`](./03_counting_history.md) for the Jetson-side
   history that backs these screens.
 - **Configurable Jetson IP** — persisted via Jetpack DataStore Preferences
   (default `192.168.100.1`, the hotspot gateway).
@@ -57,7 +57,7 @@ not an automatic push.
 
 1. **Jetson companion service running** (BL-64) on port `8090`
    (`/api/identify` + `/api/time` + the read-only history/video API). See
-   [09_jetson_companion.md](./09_jetson_companion.md).
+   [01_jetson_companion.md](./01_jetson_companion.md).
 2. **The Jetson reachable from the phone** — either:
    - **WiFi HotSpot mode** — SSID + password from `.env.local`
      (`JETSON_HOTSPOT_SSID` / `JETSON_HOTSPOT_PASSWORD`), gateway IP
@@ -159,7 +159,7 @@ JETSON_IP=192.168.0.180              # (optional) explicit LAN IP, skips discove
 Once `/api/identify` returns the JSON above, the Android app's « Jetson
 connecté » banner goes green and the sync button works. Full companion
 reference (endpoints, durability, NTP note, why port 8090, raw-ansible
-deploy, curl examples): [09_jetson_companion.md](./09_jetson_companion.md).
+deploy, curl examples): [01_jetson_companion.md](./01_jetson_companion.md).
 
 ---
 
