@@ -191,4 +191,13 @@
     <string name="offset_warning">Affects counting</string>
     <string name="settings_load_error">Couldn\'t load settings from Jetson</string>
     <string name="settings_save_error">Couldn\'t save settings to Jetson</string>
+
+    <!-- BL-77 — "À propos" (About) section in Settings -->
+    <string name="section_about">About</string>
+    <string name="about_app_version">App version</string>
+    <string name="about_companion_version">Jetson companion</string>
+    <string name="about_companion_offline">Offline</string>
+    <string name="about_companion_loading">Retrieving…</string>
+    <string name="about_companion_error">Unavailable</string>
+    <string name="about_refresh">Refresh</string>
 </resources>

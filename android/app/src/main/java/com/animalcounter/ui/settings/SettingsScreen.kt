@@ -19,6 +19,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -40,6 +41,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.animalcounter.BuildConfig
 import com.animalcounter.R
 import com.animalcounter.ui.common.AppNavIcon
 
@@ -118,6 +120,7 @@ fun SettingsScreen() {
     val boxTracking by vm.boxTracking.collectAsState()
     val centroidTracking by vm.centroidTracking.collectAsState()
     val offsetCountingLine by vm.offsetCountingLine.collectAsState()
+    val companionVersion by vm.companionVersion.collectAsState()
 
     // Confirmation dialog for the destructive Jetson poweroff. Hidden by
     // default; the "Arrêter le Jetson" button opens it; confirming dismisses
@@ -427,6 +430,79 @@ fun SettingsScreen() {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
+            }
+
+            // ---- 6. À propos (BL-77) ----
+            Section(title = stringResource(R.string.section_about)) {
+                // App version row — static, from BuildConfig.VERSION_NAME
+                // ("1.0" by default in defaultConfig).
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = stringResource(R.string.about_app_version),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        text = BuildConfig.VERSION_NAME,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                // Companion Jetson version row — live fetch
+                // (GET /api/identify). Loaded → version, Loading → spinner +
+                // "Récupération…", Error/Idle (offline) → "Hors ligne".
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = stringResource(R.string.about_companion_version),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (companionVersion is SettingsViewModel.CompanionVersionState.Loading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Text(
+                                text = stringResource(R.string.about_companion_loading),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else if (companionVersion is SettingsViewModel.CompanionVersionState.Loaded) {
+                            Text(
+                                text = (companionVersion as SettingsViewModel.CompanionVersionState.Loaded).version,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            // Error / Idle → offline / unavailable.
+                            Text(
+                                text = stringResource(R.string.about_companion_offline),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+
+                // Small refresh button — retries the live fetch. Disabled
+                // while a fetch is in flight.
+                OutlinedButton(
+                    onClick = vm::refreshCompanionVersion,
+                    enabled = companionVersion !is SettingsViewModel.CompanionVersionState.Loading,
+                ) {
+                    Text(stringResource(R.string.about_refresh))
+                }
             }
         }
     }
