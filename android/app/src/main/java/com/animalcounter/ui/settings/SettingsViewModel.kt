@@ -148,6 +148,27 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     /** Auto-clear delay after a successful sync (ms). */
     private val syncSuccessClearDelayMs = 5000L
 
+    /**
+     * UI-facing state of the live Jetson companion version fetch
+     * (`GET /api/identify`, BL-77 « À propos » card). Surfaced to the
+     * Settings screen so the About card can show the version, a spinner,
+     * or an offline state.
+     */
+    sealed interface CompanionVersionState {
+        /** No fetch attempted yet (default before the init fetch resolves). */
+        data object Idle : CompanionVersionState
+        /** A version fetch is in flight. */
+        data object Loading : CompanionVersionState
+        /** The companion version was fetched successfully. */
+        data class Loaded(val version: String) : CompanionVersionState
+        /** No reachable Jetson, non-2xx HTTP, network error, or invalid body. */
+        data object Error : CompanionVersionState
+    }
+
+    private val _companionVersion = MutableStateFlow<CompanionVersionState>(CompanionVersionState.Idle)
+    /** Observable live Jetson companion version for the « À propos » card. */
+    val companionVersion: StateFlow<CompanionVersionState> = _companionVersion.asStateFlow()
+
     /** Whether the initial DataStore values have been loaded. */
     @Suppress("unused")
     private var loaded = false
@@ -180,6 +201,35 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             // runtime-settings.json overrides the local cache so the UI shows
             // the live values. Offline → keep the cached DataStore values.
             refreshSettingsFromJetson()
+            // Best-effort fetch of the live companion version for the
+            // « À propos » card (mirrors refreshSettingsFromJetson).
+            refreshCompanionVersion()
+        }
+    }
+
+    /**
+     * Best-effort fetch of the live Jetson companion version
+     * ([JetsonConnectionManager.identifyVersion]) for the « À propos »
+     * card. Sets state to [CompanionVersionState.Loading], then maps a
+     * non-blank success → [CompanionVersionState.Loaded], a blank success →
+     * [CompanionVersionState.Error] (the field is treated as offline rather
+     * than showing a blank), and any failure → [CompanionVersionState.Error].
+     * Never throws.
+     */
+    fun refreshCompanionVersion() {
+        _companionVersion.value = CompanionVersionState.Loading
+        viewModelScope.launch {
+            val result = JetsonConnectionManager.identifyVersion()
+            _companionVersion.value = result.fold(
+                onSuccess = { version ->
+                    if (version.isNotBlank()) {
+                        CompanionVersionState.Loaded(version)
+                    } else {
+                        CompanionVersionState.Error
+                    }
+                },
+                onFailure = { CompanionVersionState.Error },
+            )
         }
     }
 
