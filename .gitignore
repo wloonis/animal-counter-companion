@@ -1,0 +1,38 @@
+# --- Android / Gradle ---
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/captures/
+android/.cxx/
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+# Keep the gradle wrapper jar (committed)
+!android/gradle/wrapper/gradle-wrapper.jar
+
+# --- Kotlin / IDE ---
+.idea/
+*.iml
+.DS_Store
+
+# --- Secrets / local env ---
+.env.local
+.env
+
+# --- Archon relay scratch ---
+.archon-relay/
+
+# --- Python ---
+__pycache__/
+*.pyc
+companion/__pycache__/
+
+# --- Misc ---
+*.log
+.archon-piv-progress.txt
+.pi-loop.json
+.pi-loop.json.lock
+validation-report.json
+save/

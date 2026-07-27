@@ -1,0 +1,490 @@
+# Android-app development workflow (BL-65+).
+#
+# Flow: Archon asks clarifying questions → Pi writes PLAN.md and submits via
+# plannotator → human reviews/approves over HTTP on 127.0.0.1:19432 → Pi
+# implements task-by-task with `./gradlew assembleDebug` validation + commits
+# → finalize (push + PR draft + APK location + install instructions).
+#
+# This workflow is ANDROID-specific. Validation = `./gradlew assembleDebug`
+# (build APK) inside the `android/` folder — NOT python3 -m py_compile and NOT
+# bun run type-check. There is NO Jetson/video validation (the app does not
+# touch countingapp) — the workflow goes straight from implement to finalize.
+#
+# Relay protocol (detached runs): same as archon-jetson-dev — beacons written to
+# `.archon-relay/` in the worktree (CLARIFY.md, PLANNOTATOR.md).
+#
+# Prereqs (one-time per machine, already installed for BL-65):
+#   - JDK 17 Temurin at ~/jdk-17 (JAVA_HOME)
+#   - Android SDK at ~/Android/Sdk (ANDROID_HOME): platform-tools,
+#     platforms;android-35, build-tools;34.0.0
+#   - pi install npm:@plannotator/pi-extension
+#   - .archon/config.yaml: extensionFlags.plan: true + PLANNOTATOR_REMOTE: "1"
+# The implement node MUST export JAVA_HOME + ANDROID_HOME before gradle.
+
+name: archon-android-dev
+description: |
+  Use when: You want autonomous development of the Android companion app
+  (BL-65 time-sync push, BL-66 count display, BL-67 video browser, ...).
+  The app lives in the repo `android/` folder (Kotlin + Jetpack Compose +
+  Material 3), targets the Jetson companion service over the Jetson hotspot.
+  Triggers: "android dev", "phone app", "companion android", "BL-65", "BL-66",
+            "BL-67".
+  NOT for: Jetson/countingapp changes (use archon-jetson-dev).
+
+  Four phases:
+  1. CLARIFY: Pi asks 2-3 targeted questions, converges on intent.
+  2. PLAN: Pi writes PLAN.md and submits via plannotator HTTP UI.
+  3. VERIFY-PLAN: Bash sanity check that PLAN.md exists with tasks.
+  4. IMPLEMENT: Pi reads approved PLAN.md, executes task-by-task with
+     `cd android && ./gradlew assembleDebug` validation + commits. Emits
+     IMPL_DONE when the APK builds and all tasks are checked.
+  5. FINALIZE: Push branch + create draft PR + report APK path + install steps.
+
+provider: pi
+model: ollama/glm-5.2
+interactive: true
+
+nodes:
+  # ═══════════════════════════════════════════════════════════════
+  # PHASE 1: CLARIFY — Converge on intent
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: clarify
+    loop:
+      prompt: |
+        # Android Dev — Clarify Phase
+
+        You are about to hand off to a Pi session that will write a plan and
+        submit it through plannotator's HTTP approval UI. Before that handoff,
+        get enough clarity that the Pi agent can produce a useful plan.
+
+        **User's request**: $ARGUMENTS
+        **User's latest reply**: $LOOP_USER_INPUT
+
+        ## Project context (ALREADY DECIDED — do NOT re-ask these)
+
+        - **Mono-repo**: the app lives in `android/` (Kotlin + Jetpack Compose +
+          Material 3). A gradle project skeleton may already exist; check with
+          `ls android/ 2>/dev/null`.
+        - **Target**: Samsung Galaxy S20 (Android 13 = API 33 max).
+          minSdk=33, compileSdk=35, targetSdk=35, AGP 8.7+, Kotlin 2.0+.
+        - **Build env already installed on this machine**: JDK 17 Temurin at
+          `~/jdk-17` (JAVA_HOME) and Android SDK at `~/Android/Sdk`
+          (ANDROID_HOME: platform-tools, platforms;android-35,
+          build-tools;34.0.0). Validation = `cd android && ./gradlew
+          assembleDebug` (build APK). Do NOT run python3 -m py_compile.
+        - **UI**: a "hub" MainActivity with a bottom navigation that is
+          EXTENSIBLE — later features (BL-66 live count display, BL-67 video
+          browser/download) will add tabs. For THIS feature, implement the
+          "Time sync" screen with a polished Material 3 design. The hub shell +
+          nav scaffold must be in place even if other tabs are placeholders.
+        - **Foreground service** with a persistent notification (more robust
+          than background NetworkCallback alone on Android 14+).
+        - **Background push**: `ConnectivityManager.registerNetworkCallback(
+          TRANSPORT_WIFI, PendingIntent)` fires when the phone joins the Jetson
+          hotspot — pushes the time WITHOUT the app being open. Re-register on
+          `RECEIVE_BOOT_COMPLETED`.
+        - **Permissions**: INTERNET, ACCESS_NETWORK_STATE, RECEIVE_BOOT_COMPLETED,
+          FOREGROUND_SERVICE (+ FOREGROUND_SERVICE_DATA_SYNC for targetSdk 35).
+          NO location permission (isolated hotspot → trust on 200).
+        - **Endpoint**: POST `http://<jetson_ip>:8090/api/time` with
+          `{"time":"<ISO8601>","tz":"<zone>"}` to the Jetson companion (BL-64,
+          already deployed). The companion responds `{"status":"ok",...}` or
+          `400`/`500`. Default Jetson IP = `192.168.100.1` (the hotspot IP),
+          USER-CONFIGURABLE in the UI.
+        - **HTTP**: HttpURLConnection (stdlib, no extra dep) OR OkHttp — your
+          call, keep it minimal.
+
+        ## If this is the FIRST iteration (no reply yet)
+
+        1. **Do light recon** — `ls android/ 2>/dev/null`, check if a gradle
+           project exists, read any existing `android/app/build.gradle*`,
+           `AndroidManifest.xml`. Also check the companion contract in
+           `docs/09_jetson_companion.md` for the exact /api/time request shape.
+        2. **Check whether every decision is already resolved.** The
+           "ALREADY DECIDED" list above + the user's request may already close
+           ALL open taste-calls (tab names/order, app name, icon, theme, IP
+           persistence, UI extras). If so, do NOT pause to re-ask.
+
+           **Convergence shortcut**: if the user's request ALREADY resolves
+           every open decision, jump straight to the "Resolved intent for
+           plannotator" block (Building / In scope / Out of scope / Key
+           decisions / Files likely to change), write `STATE: READY_FOR_PLAN`
+           to `.archon-relay/CLARIFY.md`, and emit
+           `<promise>READY_FOR_PLAN</promise>` in THIS response. Do not ask
+           questions that are already answered.
+
+        3. **Otherwise** (genuine open decisions remain) — **Output your
+           understanding + 2-3 questions**, max. Focus on what is NOT yet
+           decided: UI details (which tabs/screens to scaffold for BL-66/67
+           placeholders, color theme, app name/icon), the Jetson IP default +
+           persistence (DataStore/SharedPreferences), how much of the hub shell
+           to build now vs stub, and whether to add a "Push now" test button +
+           a status/log view.
+
+           Ask about DECISIONS, not things you can look up.
+
+        ## If the user has replied (subsequent iterations)
+
+        Parse their answers. If still ambiguous, ask ONE follow-up. If
+        converging, summarize the resolved intent and ask for confirmation:
+
+        ```
+        ## Ready for plannotator
+        **Building**: ...
+        **In scope**: ...
+        **Out of scope**: ...
+        **Key decisions**: ...
+        **Files likely to change**: ...
+        ```
+
+        Tell them: "Say **ready** to hand off to plannotator." Do NOT emit the
+        signal yet.
+
+        ### If they approved ("ready", "go", "proceed", "approved")
+
+        Restate the FULL resolved intent one last time, then emit the signal in
+        the SAME response (`$clarify.output` is the ONLY intent the planner
+        receives):
+
+        ```
+        ## Resolved intent for plannotator
+        **Building**: ...
+        **In scope**: ...
+        **Out of scope**: ...
+        **Key decisions**: ...
+        **Files likely to change**: ...
+        ```
+
+        `<promise>READY_FOR_PLAN</promise>`
+
+        ## Signal rules
+        - ONLY emit `<promise>READY_FOR_PLAN</promise>` when the user explicitly
+          approved AND you just restated the full resolved intent in the same
+          response.
+        - A question or revision request = do NOT emit the signal.
+
+        ## Relay beacon (REQUIRED every iteration)
+        After printing your output, use the write tool to create/overwrite
+        `.archon-relay/CLARIFY.md`:
+        ```
+        STATE: WAITING_FOR_USER
+        ITERATION: <n>
+        QUESTIONS:
+        <your questions verbatim, or: None — confirm "ready" to proceed>
+        INTENT: <one-line summary>
+        ```
+        When emitting READY_FOR_PLAN, first overwrite it with
+        `STATE: READY_FOR_PLAN`. The write tool creates `.archon-relay/`.
+      until: READY_FOR_PLAN
+      max_iterations: 6
+      interactive: true
+      gate_message: |
+        My questions are in `.archon-relay/CLARIFY.md`. Answer them, push back on
+        the scoping, or say "ready" to hand off to plannotator for plan review.
+
+  # ═══════════════════════════════════════════════════════════════
+  # PHASE 2: PLAN — Pi session submits plan via plannotator
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: plannotator-plan
+    depends_on: [clarify]
+    provider: pi
+    model: ollama/glm-5.2
+    idle_timeout: 3600000
+    prompt: |
+      # Android Dev — Plan Phase (PLANNING ONLY)
+
+      ╔══════════════════════════════════════════════════════════════╗
+      ║  ⚠  YOU ARE A PLANNER. YOU ARE NOT AN IMPLEMENTER.           ║
+      ║  Your ENTIRE job is: write PLAN.md, submit via                ║
+      ║  plannotator_submit_plan, iterate if denied, and on approval  ║
+      ║  PRINT ONE LINE AND EXIT. You will NEVER edit any file other   ║
+      ║  than PLAN.md, never run gradle/bash/agent_browser, never     ║
+      ║  "get a head start" on implementation.                         ║
+      ╚══════════════════════════════════════════════════════════════╝
+
+      **Resolved intent from the clarify phase**:
+      $clarify.output
+
+      > The block above is the ONLY intent you receive. If it does not contain
+      > a "Resolved intent for plannotator" block, STOP and print
+      > "CLARIFY→PLAN HANDOFF BROKEN".
+
+      ## Step 1: Write PLAN.md (structure)
+
+      ```markdown
+      # Plan: {feature name}
+
+      ## Summary
+      {1-2 sentences}
+
+      ## In Scope
+      - ...
+      ## Out of Scope
+      - ...
+
+      ## Architecture Decisions
+      - ...
+
+      ## Tasks
+      - [ ] Task 1: {ACTION} `android/...` — {what and why}
+      - [ ] Task 2: ...
+      ## Validation
+      - `cd android && ./gradlew assembleDebug` builds the APK
+      ## Risks
+      - ...
+      ```
+
+      Every task must be atomic, name a specific file under `android/`, and
+      describe a verifiable action. You may READ CLAUDE.md/AGENTS.md/README.md
+      and `docs/09_jetson_companion.md` (companion /api/time contract), but do
+      NOT read or edit source files.
+
+      ## Step 2: Submit for review
+      Call `plannotator_submit_plan`. Wait for the reviewer's decision.
+
+      ### Approved
+      Print: `PLAN APPROVED — handing off to implement node.` Exit.
+
+      ### Denied with feedback
+      Edit PLAN.md, resubmit. Repeat until approved.
+
+      ## Step 3: Relay beacon (REQUIRED on every submission)
+      After every plannotator_submit_plan call, write `.archon-relay/PLANNOTATOR.md`:
+      ```
+      STATE: PLAN_REVIEW_PENDING
+      URL: http://127.0.0.1:19432
+      PLAN_FILE: PLAN.md
+      ```
+      On approval, overwrite with `STATE: PLAN_APPROVED` then exit.
+
+      ## Rules (non-negotiable)
+      - PLAN.md and `.archon-relay/PLANNOTATOR.md` are the ONLY files you may
+        create/edit. You may READ PLAN.md, CLAUDE.md, AGENTS.md, README.md,
+        docs/09_jetson_companion.md.
+      - Do NOT call bash/agent_browser/cron_create or run gradle/build.
+      - **Plan approval is a HUMAN gate** — only the user approves/denies via
+        the plannotator browser. Never auto-approve.
+
+  # ═══════════════════════════════════════════════════════════════
+  # PHASE 2b: VERIFY — Sanity check the approved plan landed on disk
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: verify-plan
+    depends_on: [plannotator-plan]
+    bash: |
+      if [ ! -f PLAN.md ]; then
+        echo "FAIL: PLAN.md was not created"; exit 1
+      fi
+      if ! grep -qE '^- \[.\]' PLAN.md; then
+        echo "FAIL: PLAN.md has no task checkboxes"; cat PLAN.md; exit 1
+      fi
+      task_count=$(grep -cE '^- \[.\]' PLAN.md)
+      echo "PASS: PLAN.md has $task_count task(s)"
+      cp PLAN.md "$ARTIFACTS_DIR/PLAN.md"
+      MAIN=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
+      mkdir -p "$MAIN/plans"
+      TITLE=$(grep -m1 '^# Plan:' PLAN.md | sed 's/^# Plan:[[:space:]]*//')
+      SLUG=$(printf '%s' "$TITLE" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n' ' ' | tr -s ' \n' '-' | sed 's/^-//; s/-$//' | cut -c1-60 | sed 's/-$//')
+      [ -z "$SLUG" ] && SLUG="plan"
+      OUT="$MAIN/plans/PR_${SLUG}.md"
+      [ -e "$OUT" ] && OUT="$MAIN/plans/PR_${SLUG}-$(git rev-parse --short HEAD).md"
+      cp PLAN.md "$OUT"
+      echo "ARCHIVED approved plan -> $OUT"
+
+  # ═══════════════════════════════════════════════════════════════
+  # PHASE 3: IMPLEMENT — Task-by-task loop against PLAN.md
+  # Validation = cd android && ./gradlew assembleDebug (build APK)
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: implement
+    depends_on: [verify-plan]
+    idle_timeout: 1200000
+    model: large
+    loop:
+      prompt: |
+        # Android Dev — Implementation Agent
+
+        You are an autonomous coding agent in a FRESH session. Read the approved
+        plan from disk, implement ONE task, validate, commit, exit. The loop
+        engine starts a fresh session for the next task.
+
+        **IMPORTANT — this is an Android (Kotlin + Jetpack Compose) project in
+        `android/`.** Do NOT run `python3 -m py_compile`, `bun run type-check`,
+        or any Jetson/validate script — they are irrelevant here. The ONLY
+        validation is a successful gradle build:
+
+        ```bash
+        export JAVA_HOME="$HOME/jdk-17"
+        export ANDROID_HOME="$HOME/Android/Sdk"
+        export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+        cd android && ./gradlew assembleDebug
+        ```
+
+        The build env (JDK 17 + Android SDK) is already installed on this
+        machine — do NOT reinstall it. The Gradle wrapper (`gradlew`) downloads
+        Gradle + AGP + Kotlin on the first run (needs internet — this machine is
+        on WiFi internet).
+
+        **Golden Rule**: if `./gradlew assembleDebug` fails, fix it before
+        committing. Never commit code that does not build.
+
+        ---
+
+        ## Phase 0: Load State
+        1. Read `PLAN.md` (source of truth).
+        2. `cat .archon-piv-progress.txt 2>/dev/null || true`.
+        3. `git log --oneline -10` and `git status`.
+        4. If the `android/` gradle project does not exist yet, your FIRST task
+           is to scaffold it (settings.gradle.kts, build.gradle.kts app +
+           project, gradle wrapper, AndroidManifest, MainActivity Compose). Use
+           the latest stable AGP 8.7.x + Kotlin 2.0.x + Compose BOM.
+
+        ## Phase 1: Select Next Task
+        Tasks are `- [ ]` checkboxes in PLAN.md. Cross-reference progress +
+        recent commits. If every task is checked → skip to Phase 4 (Complete).
+        Announce:
+        ```
+        -- Task Selected --
+        Task: {N} — {title}
+        File: {path}
+        ```
+
+        ## Phase 2: Implement
+        Read the file(s) the task touches. Make changes following Kotlin +
+        Compose conventions (Material 3). Keep the code clean and idiomatic.
+
+        ## Phase 3: Validate + Commit
+        ```bash
+        export JAVA_HOME="$HOME/jdk-17"
+        export ANDROID_HOME="$HOME/Android/Sdk"
+        export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+        cd android && ./gradlew assembleDebug 2>&1 | tail -40
+        ```
+        If the build fails, fix (up to 3 attempts). If you can't fix, note it in
+        `.archon-piv-progress.txt` and exit WITHOUT committing.
+
+        If the build passes, stage only the files you edited:
+        ```bash
+        git add android/path/to/file1 android/path/to/file2 ...
+        git status --porcelain
+        git diff --cached --stat
+        git commit -m "$(cat <<'EOF'
+        {type}: {short description}
+
+        Task {N} from PLAN.md
+        EOF
+        )"
+        ```
+        Mark the task `- [x]` in PLAN.md and append to `.archon-piv-progress.txt`:
+        ```
+        Task {N}: {title} — {commit short hash}
+        ```
+
+        **Never stage**: `.pr-body.md`, `*.scratch.md`, `*-report.md` at repo
+        root, or anything under `$ARTIFACTS_DIR`.
+
+        ## Phase 4: Complete
+        If every task in PLAN.md is now checked:
+        1. Final build: `cd android && ./gradlew assembleDebug` (must succeed).
+        2. Locate the APK: `ls -la android/app/build/outputs/apk/debug/*.apk`.
+        3. Signal: `<promise>IMPL_DONE</promise>`
+        Otherwise, end normally — the loop starts a fresh iteration.
+
+      until: IMPL_DONE
+      max_iterations: 30
+      fresh_context: true
+
+  # ═══════════════════════════════════════════════════════════════
+  # PHASE 4: FINALIZE — Push, create PR, report APK + install steps
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: finalize
+    model: medium
+    depends_on: [implement]
+    context: fresh
+    prompt: |
+      # Android Dev — Finalize
+
+      The Android app has been implemented and the APK builds. Push changes,
+      create a draft PR, and report the APK path + install instructions.
+
+      ## Step 1: Push
+      ```bash
+      git push -u origin HEAD 2>&1 || echo "WARNING: Push failed — verify auth."
+      ```
+
+      ## Step 2: Confirm the APK
+      ```bash
+      export JAVA_HOME="$HOME/jdk-17"
+      export ANDROID_HOME="$HOME/Android/Sdk"
+      export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+      cd android && ./gradlew assembleDebug 2>&1 | tail -20
+      ls -la app/build/outputs/apk/debug/*.apk
+      ```
+
+      ## Step 3: Summary
+      ```bash
+      git log --oneline --no-merges $(git merge-base HEAD $BASE_BRANCH)..HEAD
+      git diff --stat $(git merge-base HEAD $BASE_BRANCH)..HEAD
+      ```
+      Read PLAN.md and `.archon-piv-progress.txt`.
+
+      ## Step 4: Create PR (if not already)
+      ```bash
+      gh pr view HEAD --json url 2>/dev/null || echo "NO_PR"
+      ```
+      If no PR exists, `gh pr create --draft --base $BASE_BRANCH`:
+      - Title from the plan
+      - Body: implementation summary + the APK path + install instructions
+        (ADB via USB + sideload fallback — see below)
+      - Include `Closes #<issue>` if a GitHub issue exists for this feature.
+
+      ## Step 5: Output Summary
+      ```
+      ===============================================================
+      ANDROID DEV — COMPLETE
+      ===============================================================
+      Feature: {from plan}
+      Branch: {branch}
+      PR: {url}
+
+      -- APK -----------------------------------------------------------
+      {path to app-debug.apk}
+
+      -- Install on Samsung S20 (ADB via USB) --------------------------
+      1. S20: Settings → About phone → Software info → tap "Build number" 7×
+         (enables Developer options).
+      2. S20: Settings → Developer options → enable "USB debugging".
+      3. Connect the S20 via USB to the PC; allow debugging from this PC.
+      4. PC (Windows, with platform-tools/adb): 
+           adb install {apk name}
+         (On WSL, ADB cannot see USB by default — build on WSL, install from
+         Windows, or sideload the .apk.)
+      -- Sideload fallback (no ADB) -----------------------------------
+      Copy the .apk to the S20 (USB file transfer or download), then tap it in
+      the Files app and allow "install from unknown sources".
+
+      -- Tasks Completed -----------------------------------------------
+      {from progress tracking}
+      -- Commits -------------------------------------------------------
+      {git log output}
+      -- Files Changed -------------------------------------------------
+      {git diff --stat output}
+      ===============================================================
+      ```
+
+  - id: verify-pr-base
+    bash: |
+      set -euo pipefail
+      EXPECTED="$BASE_BRANCH"
+      ACTUAL=$(gh pr view --json baseRefName -q '.baseRefName')
+      if [ "$ACTUAL" != "$EXPECTED" ]; then
+        PR_NUMBER=$(gh pr view --json number -q '.number')
+        echo "Base mismatch on PR #$PR_NUMBER: expected=$EXPECTED actual=$ACTUAL — re-targeting" >&2
+        gh pr edit "$PR_NUMBER" --base "$EXPECTED"
+      else
+        echo "PR base verified: $EXPECTED"
+      fi
+    depends_on: [finalize]

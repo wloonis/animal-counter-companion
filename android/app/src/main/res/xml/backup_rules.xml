@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Allow-all full-backup rules for the Animal Counter app.
+  Android 12+ (API 31+) backup attributes in the AndroidManifest reference this
+  file via android:fullBackupContent. An empty <full-backup-content/> (no
+  <include>/<exclude> children) means "back up everything allowed by the
+  system's default rules".
+-->
+<full-backup-content />

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Data extraction rules for the Animal Counter app.
+  Referenced by android:dataExtractionRules in the AndroidManifest (Android 12+
+  / API 31+). An empty <data-extraction-rules/> element applies the system
+  defaults for both device-to-device transfers and cloud backup, which is
+  fine for this small field-companion app (only the persisted Jetson IP lives
+  in DataStore Preferences).
+-->
+<data-extraction-rules />

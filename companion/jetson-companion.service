@@ -1,0 +1,22 @@
+[Unit]
+Description=Jetson companion HTTP bridge (clock-sync + read-only history/video API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/jetson-companion
+Restart=on-failure
+RestartSec=3
+Environment=COMPANION_PORT=8090
+Environment=HISTORY_FILE_HOST=/data/orin/files/counting-history.jsonl
+# Defense-in-depth: the companion must never starve inference. Nice +
+# best-effort I/O + a 30% CPU cap keep it subservient to the countingapp pod
+# even if the JSONL grows or a video stream spikes (BL-71).
+Nice=10
+IOSchedulingClass=best-effort
+CPUQuota=30%
+
+[Install]
+WantedBy=multi-user.target

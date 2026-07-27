@@ -1,0 +1,70 @@
+---
+# deploy_companion.yml — install + enable the Jetson companion HTTP bridge.
+#
+# The companion runs on the Jetson HOST (systemd), not in k3s. It is stdlib-only
+# Python (no pip). This playbook installs the script + the systemd unit and
+# enables the service. It does NOT touch the countingapp, k3s, or the shared
+# /files path (that is owned by the countingapp repo's playbooks).
+#
+# The companion communicates with the countingapp (k3s pod, hostPath /files)
+# ONLY via shared files — see ../docs/IPC_CONTRACT.md.
+#
+# Usage (from this repo root, against a Jetson on the home WiFi or hotspot):
+#   ansible-playbook -i <jetson_ip>, ansible/playbooks/deploy_companion.yml \
+#       -e ansible_user=nano-counter -e ansible_password='<from .env.local>'
+# (passwordless sudo assumed; or add -e ansible_become_password=...)
+#
+# Variables (defaults, override with -e):
+#   companion_script : /usr/local/bin/jetson-companion
+#   companion_service: jetson-companion.service
+#   companion_port   : 8090
+#   companion_history_file_host : /data/orin/files/counting-history.jsonl
+
+- name: Deploy Jetson companion HTTP bridge
+  hosts: all
+  become: true
+  vars:
+    companion_script: /usr/local/bin/jetson-companion
+    companion_service: jetson-companion.service
+    companion_port: 8090
+    companion_history_file_host: /data/orin/files/counting-history.jsonl
+
+  tasks:
+    - name: Ensure /data/orin/files exists (shared with the countingapp pod)
+      ansible.builtin.file:
+        path: /data/orin/files
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install jetson-companion script
+      ansible.builtin.copy:
+        dest: "{{ companion_script }}"
+        owner: root
+        group: root
+        mode: "0755"
+        src: ../../companion/jetson-companion.py
+      notify: Restart jetson-companion service
+
+    - name: Install jetson-companion.service
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ companion_service }}"
+        owner: root
+        group: root
+        mode: "0644"
+        src: ../../companion/jetson-companion.service
+      notify: Restart jetson-companion service
+
+    - name: Enable + start jetson-companion.service
+      ansible.builtin.systemd:
+        name: "{{ companion_service }}"
+        daemon_reload: true
+        enabled: true
+        state: started
+
+  handlers:
+    - name: Restart jetson-companion service
+      ansible.builtin.systemd:
+        name: "{{ companion_service }}"
+        state: restarted

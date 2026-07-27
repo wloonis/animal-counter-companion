@@ -1,0 +1,433 @@
+package com.animalcounter.ui.settings
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.animalcounter.R
+import com.animalcounter.ui.common.AppNavIcon
+
+/**
+ * Settings tab (BL-73 / BL-76) — operator configuration, restructured into
+ * five clear sections:
+ *
+ *  1. **Horloge** — on-demand clock sync (BL-74, "Synchroniser l'heure").
+ *  2. **Connexion au Jetson** — auto-select toggle, manual-override IP and
+ *     the two candidate IPs (hotspot + lan) used by the parallel probe
+ *     (BL-73).
+ *  3. **Alimentation** — on-demand Jetson poweroff (BL-76) with a
+ *     destructive button + confirmation dialog.
+ *  4. **Enregistrement & tracking** — master "Track in recordings" toggle
+ *     (`draw_tracking`) + two sub-toggles "Boxes" (`box_tracking`) and
+ *     "Trails" (`centroid_tracking`), the latter two disabled while the
+ *     master is OFF.
+ *  5. **Ligne de comptage** — slider 0-100 for `offset_counting_line` with
+ *     a live value readout and a warning that it affects the count.
+ *
+ * Every edit is persisted to DataStore (debounced in [SettingsViewModel])
+ * and, for the tracking/offset settings, pushed to the Jetson via
+ * `PUT /api/settings` so the next recording picks them up at hot-reload
+ * time (BL-76).
+ *
+ * All user-facing text is localized via `stringResource(R.string.*)`
+ * (no hard-coded strings).
+ */
+
+/**
+ * A reusable settings [Section] — a titled group of controls rendered inside
+ * a [Card]. Each of the five BL-76 sections uses this wrapper so the screen
+ * has a consistent visual rhythm (title + content column).
+ *
+ * @param title the section heading (already localized).
+ * @param content the section body composable(s).
+ */
+@Composable
+private fun Section(
+    title: String,
+    content: @Composable () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            content()
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen() {
+    val vm: SettingsViewModel = viewModel()
+    val autoSelect by vm.autoSelect.collectAsState()
+    val manualIp by vm.manualIp.collectAsState()
+    val hotspotIp by vm.hotspotIp.collectAsState()
+    val lanIp by vm.lanIp.collectAsState()
+    val syncState by vm.syncResult.collectAsState()
+    val poweroffState by vm.poweroffResult.collectAsState()
+    val drawTracking by vm.drawTracking.collectAsState()
+    val boxTracking by vm.boxTracking.collectAsState()
+    val centroidTracking by vm.centroidTracking.collectAsState()
+    val offsetCountingLine by vm.offsetCountingLine.collectAsState()
+
+    // Confirmation dialog for the destructive Jetson poweroff. Hidden by
+    // default; the "Arrêter le Jetson" button opens it; confirming dismisses
+    // the dialog and fires [SettingsViewModel.poweroff].
+    var showPoweroffDialog by remember { mutableStateOf(false) }
+
+    if (showPoweroffDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                // Only the explicit "Confirm" triggers the poweroff; cancel
+                // closes the dialog without action.
+                showPoweroffDialog = false
+            },
+            title = { Text(stringResource(R.string.power_confirm_title)) },
+            text = { Text(stringResource(R.string.power_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showPoweroffDialog = false
+                        vm.poweroff()
+                    },
+                ) {
+                    Text(
+                        text = stringResource(R.string.power_button),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            // No explicit dismiss button: tapping outside / back cancels via
+            // onDismissRequest (kept out of the BL-76 string set).
+        )
+    }
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.settings_title)) },
+                navigationIcon = { AppNavIcon() },
+            )
+        },
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            // ---- 1. Horloge ----
+            Section(title = stringResource(R.string.section_clock)) {
+                // On-demand clock sync (BL-74). Pushes the current device
+                // time to the Jetson (POST /api/time) via
+                // JetsonConnectionManager.syncTime. The button is disabled
+                // while a sync is in flight; the inline status line reflects
+                // the outcome (green success auto-clears via the VM after
+                // ~5s, red failure persists until the next action).
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Button(
+                        onClick = vm::syncTime,
+                        enabled = syncState !is SettingsViewModel.SyncState.Syncing,
+                    ) {
+                        if (syncState is SettingsViewModel.SyncState.Syncing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(Modifier.size(8.dp))
+                        }
+                        Text(stringResource(R.string.settings_sync_time))
+                    }
+
+                    when (syncState) {
+                        is SettingsViewModel.SyncState.Idle -> { /* no inline status */ }
+                        is SettingsViewModel.SyncState.Syncing -> {
+                            Text(
+                                text = stringResource(R.string.settings_syncing),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                        is SettingsViewModel.SyncState.Success -> {
+                            Text(
+                                text = stringResource(R.string.settings_sync_success),
+                                color = Color(0xFF2E7D32),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                        is SettingsViewModel.SyncState.Failure -> {
+                            Text(
+                                text = stringResource(R.string.settings_sync_failure),
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ---- 2. Connexion au Jetson ----
+            Section(title = stringResource(R.string.section_connection)) {
+                // Auto-select toggle. When on, the manager polls both
+                // candidate IPs in parallel and picks the first reachable
+                // one.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_auto_select),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Switch(
+                        checked = autoSelect,
+                        onCheckedChange = vm::setAutoSelect,
+                    )
+                }
+
+                // Manual-override IP. Typing here flips auto-select off; the
+                // field stays editable so the operator can type even with
+                // auto-select on (the toggle then flips off automatically).
+                OutlinedTextField(
+                    value = manualIp,
+                    onValueChange = vm::onManualIpChange,
+                    label = { Text(stringResource(R.string.settings_manual_ip)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                // Candidate IPs probed by the auto-select parallel
+                // selection.
+                OutlinedTextField(
+                    value = hotspotIp,
+                    onValueChange = vm::onHotspotIpChange,
+                    label = { Text(stringResource(R.string.settings_hotspot_ip)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                OutlinedTextField(
+                    value = lanIp,
+                    onValueChange = vm::onLanIpChange,
+                    label = { Text(stringResource(R.string.settings_lan_ip)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            // ---- 3. Alimentation ----
+            Section(title = stringResource(R.string.section_power)) {
+                // Destructive "Arrêter le Jetson" button (BL-76). Opens a
+                // confirmation dialog; on confirm, the VM writes the
+                // `.arret_requested` sentinel via POST /api/power and the
+                // counting app runs the BL-62 poweroff sequence. The
+                // button is disabled while a request is in flight; the
+                // inline status reflects the outcome (spinner + "Arrêt en
+                // cours" while loading, then success/error).
+                val powerLoading =
+                    poweroffState is SettingsViewModel.PoweroffUiState.Loading
+
+                Button(
+                    onClick = { showPoweroffDialog = true },
+                    enabled = !powerLoading,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (powerLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onError,
+                        )
+                        Spacer(Modifier.size(8.dp))
+                    }
+                    Text(stringResource(R.string.power_button))
+                }
+
+                when (poweroffState) {
+                    is SettingsViewModel.PoweroffUiState.Idle -> { /* no inline status */ }
+                    is SettingsViewModel.PoweroffUiState.Loading -> {
+                        Text(
+                            text = stringResource(R.string.power_in_progress),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    is SettingsViewModel.PoweroffUiState.Success -> {
+                        Text(
+                            text = stringResource(R.string.power_success),
+                            color = Color(0xFF2E7D32),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    is SettingsViewModel.PoweroffUiState.Error -> {
+                        Text(
+                            text = stringResource(R.string.power_error),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+            }
+
+            // ---- 4. Enregistrement & tracking ----
+            Section(title = stringResource(R.string.section_tracking)) {
+                // Master "Track in recordings" toggle (`draw_tracking`).
+                // When OFF, the two sub-toggles below are disabled/grayed.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.draw_tracking_title),
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        Text(
+                            text = stringResource(R.string.draw_tracking_subtitle),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = drawTracking,
+                        onCheckedChange = vm::setDrawTracking,
+                    )
+                }
+
+                // "Boxes" sub-toggle — disabled (grayed) while the master is
+                // OFF.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = stringResource(R.string.box_tracking_title),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (drawTracking)
+                            MaterialTheme.colorScheme.onSurface
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Switch(
+                        checked = boxTracking,
+                        onCheckedChange = vm::setBoxTracking,
+                        enabled = drawTracking,
+                    )
+                }
+
+                // "Trails" sub-toggle — disabled (grayed) while the master
+                // is OFF.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = stringResource(R.string.centroid_tracking_title),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (drawTracking)
+                            MaterialTheme.colorScheme.onSurface
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Switch(
+                        checked = centroidTracking,
+                        onCheckedChange = vm::setCentroidTracking,
+                        enabled = drawTracking,
+                    )
+                }
+            }
+
+            // ---- 5. Ligne de comptage ----
+            Section(title = stringResource(R.string.section_counting_line)) {
+                Text(
+                    text = stringResource(R.string.offset_slider_title),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Slider(
+                    value = offsetCountingLine.toFloat(),
+                    onValueChange = { vm.setOffsetCountingLine(it.toInt()) },
+                    valueRange = 0f..100f,
+                    steps = 0,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                // Live value readout (e.g. "10").
+                Text(
+                    text = offsetCountingLine.toString(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                // Warning: changing the counting line affects the count.
+                Text(
+                    text = stringResource(R.string.offset_warning),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+}

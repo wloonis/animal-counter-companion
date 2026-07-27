@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Material 3 teal — adaptive icon background (BL-65 Task 9) -->
+    <color name="ic_launcher_background">#FF00897B</color>
+</resources>

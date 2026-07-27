@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App identity -->
+    <string name="app_name">Animal Counter</string>
+
+    <!-- Bottom-nav tabs -->
+    <string name="tab_settings">Réglages</string>
+    <string name="tab_live_count">Comptage en direct</string>
+    <string name="tab_videos">Vidéos</string>
+
+    <!-- Reachability banner (Dashboard / Live count) -->
+    <string name="refresh">Actualiser</string>
+    <string name="jetson_connected">Jetson connecté</string>
+    <string name="jetson_out_of_range">Jetson hors de portée</string>
+    <string name="jetson_checking">Vérification…</string>
+
+    <!-- Placeholder screens -->
+    <string name="coming_soon">Bientôt disponible</string>
+
+    <!-- BL-69 — status labels (live count / history / detail) -->
+    <string name="status_running">En cours</string>
+    <string name="status_ended">Terminé</string>
+    <string name="status_clean">Propre</string>
+    <string name="status_power_loss">Coupure secteur</string>
+    <string name="status_unknown">Inconnu</string>
+
+    <!-- BL-69 — live count screen -->
+    <string name="live_count_label">Comptage</string>
+    <string name="live_auto_mode">Mode auto</string>
+    <string name="live_direct">En direct</string>
+    <string name="live_idle">En pause</string>
+    <string name="live_offline">Hors ligne</string>
+    <string name="offline_cache_banner">Hors ligne - cache du %1$s</string>
+
+    <!-- BL-69 — shared error/empty messages -->
+    <string name="error_out_of_range">Hors de portée</string>
+    <string name="error_network">Erreur réseau</string>
+    <string name="error_load">Échec du chargement</string>
+
+    <!-- BL-69 — history screen -->
+    <string name="tab_history">Historique</string>
+    <string name="history_title">Historique comptage</string>
+    <string name="empty_history">Aucun comptage</string>
+    <string name="filter_status_all">Toutes</string>
+    <string name="filter_status_running">En cours</string>
+    <string name="filter_status_clean">Propre</string>
+    <string name="filter_status_power_loss">Coupure secteur</string>
+    <string name="filter_status_unknown">Inconnu</string>
+    <string name="filter_status_ready">Prêt</string>
+    <string name="filter_date_label">Date</string>
+    <string name="filter_date_none">Toutes les dates</string>
+    <string name="filter_clear">Effacer</string>
+    <string name="history_net_label">Net</string>
+    <string name="history_events_label">Événements</string>
+    <string name="history_duration_label">Durée</string>
+    <string name="history_loading_more">Chargement…</string>
+
+    <!-- BL-69 — session detail screen -->
+    <string name="detail_title">Session</string>
+    <string name="detail_back">Retour</string>
+    <string name="group_header">En-tête</string>
+    <string name="group_counting">Comptage</string>
+    <string name="group_guards">Gardes</string>
+    <string name="group_perf">Performance &amp; thermique</string>
+    <string name="group_config">Configuration</string>
+    <string name="group_video">Vidéo</string>
+    <string name="group_system">Système</string>
+    <string name="group_timeline">Chronologie des événements</string>
+    <string name="detail_video">Vidéo</string>
+    <string name="detail_start">Début</string>
+    <string name="detail_end">Fin</string>
+    <string name="detail_duration">Durée</string>
+    <string name="detail_status">Statut</string>
+    <string name="detail_end_reason">Raison de fin</string>
+    <string name="detail_session_id">ID session</string>
+    <string name="video_detail_title">Détail</string>
+    <string name="sessions_title">Sessions</string>
+    <string name="detail_heartbeats">Pulsations</string>
+    <string name="detail_net">Comptage net</string>
+    <string name="detail_count_ltr">Gauche → Droite</string>
+    <string name="detail_count_rtl">Droite → Gauche</string>
+    <string name="detail_unique_ids">IDs de trace uniques</string>
+    <string name="detail_id_switch">Récup. ID switch</string>
+    <string name="detail_max_concurrent">Traces simultanées max</string>
+    <string name="guard_lost_buffer">Buffer perdu expiré</string>
+    <string name="guard_mirror">Garde miroir</string>
+    <string name="guard_resurrection">Résurrection</string>
+    <string name="guard_reid">ReID rebind</string>
+    <string name="perf_fps_avg">FPS moyen</string>
+    <string name="perf_fps_min">FPS min</string>
+    <string name="perf_frames_dropped">Images perdues</string>
+    <string name="perf_temp_avg">Temp. SoC moy.</string>
+    <string name="perf_temp_peak">Temp. SoC crête</string>
+    <string name="perf_inference_ms">Inférence ms</string>
+    <string name="perf_gpu_util">Util. GPU</string>
+    <string name="config_model">Modèle</string>
+    <string name="config_thresholds">Seuils</string>
+    <string name="config_guard_params">Paramètres de garde</string>
+    <string name="config_git_commit">Git commit</string>
+    <string name="config_image_tag">Tag image</string>
+    <string name="config_mode">Mode</string>
+    <string name="video_size">Taille</string>
+    <string name="video_duration">Durée</string>
+    <string name="video_resolution">Résolution</string>
+    <string name="video_codec">Codec</string>
+    <string name="video_complete">Complet</string>
+    <string name="video_path">Chemin</string>
+    <string name="video_running_na">En cours / N/A</string>
+    <string name="sys_disk_free_start">Disque libre (début)</string>
+    <string name="sys_disk_free_end">Disque libre (fin)</string>
+    <string name="sys_cpu_load">Charge CPU moy.</string>
+    <string name="sys_mem_used">Mémoire utilisée</string>
+    <string name="timeline_empty">Aucun événement</string>
+    <string name="unit_seconds">s</string>
+    <string name="unit_celsius">°C</string>
+    <string name="unit_mb">Mo</string>
+    <string name="unit_gb">Go</string>
+    <string name="na_label">N/A</string>
+    <string name="event_crossed_left">Traversée gauche</string>
+    <string name="event_crossed_right">Traversée droite</string>
+    <string name="event_id_switch_recovery">Récup. ID switch</string>
+    <string name="event_mirror_guard">Garde miroir</string>
+    <string name="event_resurrection">Résurrection</string>
+    <string name="event_reid_suppress">ReID supprimé</string>
+    <string name="event_track_lost">Trace perdue</string>
+    <string name="event_lost_buffer_expired">Buffer perdu expiré</string>
+    <string name="event_mirror_guard_enforce">Garde miroir forcé</string>
+    <string name="event_mirror_suppress">Miroir supprimé</string>
+    <string name="detail_empty">Aucune session chargée</string>
+
+    <!-- BL-69 — dashboard screen -->
+    <string name="tab_dashboard">Tableau de bord</string>
+    <string name="dashboard_title">Tableau de bord</string>
+    <string name="dashboard_period_7">7 jours</string>
+    <string name="dashboard_period_1">1 jour</string>
+    <string name="dashboard_period_30">30 jours</string>
+    <string name="dashboard_total_counted">Total compté</string>
+    <string name="dashboard_total_sessions">Sessions</string>
+    <string name="dashboard_total_guards">Événements de garde</string>
+    <string name="dashboard_avg_per_day">Moy. / jour</string>
+    <string name="empty_dashboard">Aucune donnée pour cette période</string>
+
+    <!-- BL-69 — sessions tab (was startups) -->
+    <string name="tab_sessions">Sessions</string>
+    <string name="empty_startups">Aucun démarrage enregistré</string>
+    <string name="startup_boot_at">Démarré à</string>
+    <string name="startup_image_tag">Tag image</string>
+    <string name="startup_git_commit">Git commit</string>
+    <string name="startup_mode">Mode</string>
+    <string name="startup_config_notable">Config notable</string>
+
+    <!-- BL-69 — live count status label -->
+    <string name="live_status_label">Statut</string>
+
+    <!-- BL-72 — video detail (download / open) -->
+    <string name="video_count_delta">Delta comptage</string>
+    <string name="video_download">Télécharger</string>
+    <string name="video_open">Ouvrir</string>
+    <string name="video_unavailable">Vidéo indisponible (compression en cours ou nettoyée)</string>
+    <string name="video_still_recording">Enregistrement en cours</string>
+    <string name="video_download_failed">Échec du téléchargement</string>
+
+    <!-- BL-73 — settings screen -->
+    <string name="settings_title">Réglages</string>
+    <string name="settings_auto_select">Sélection auto de l\'IP Jetson</string>
+    <string name="settings_manual_ip">IP Jetson manuelle</string>
+    <string name="settings_hotspot_ip">IP candidate hotspot</string>
+    <string name="settings_lan_ip">IP candidate LAN</string>
+    <string name="settings_sync_time">Synchroniser l\'heure</string>
+    <string name="settings_sync_success">Heure synchronisée ✓</string>
+    <string name="settings_sync_failure">Échec de la synchronisation</string>
+    <string name="settings_syncing">Synchronisation…</string>
+
+    <!-- BL-76 — écran réglages restructuré (5 sections + arrêt + bascules tracking) -->
+    <string name="section_clock">Horloge</string>
+    <string name="section_connection">Connexion au Jetson</string>
+    <string name="section_power">Alimentation</string>
+    <string name="section_tracking">Enregistrement &amp; tracking</string>
+    <string name="section_counting_line">Ligne de comptage</string>
+    <string name="power_button">Arrêter le Jetson</string>
+    <string name="power_confirm_title">Arrêter le Jetson ?</string>
+    <string name="power_confirm_message">Êtes-vous sûr ? Le Jetson s\'éteindra à la fin de l\'enregistrement en cours.</string>
+    <string name="power_in_progress">Arrêt en cours…</string>
+    <string name="power_success">Arrêt demandé ✓</string>
+    <string name="power_error">Échec de l\'arrêt</string>
+    <string name="draw_tracking_title">Tracker les vidéos</string>
+    <string name="draw_tracking_subtitle">Annoter boîtes et trails dans les enregistrements sauvegardés</string>
+    <string name="box_tracking_title">Boîtes</string>
+    <string name="centroid_tracking_title">Trails</string>
+    <string name="offset_slider_title">Position de la ligne</string>
+    <string name="offset_warning">Modifie le comptage</string>
+    <string name="settings_load_error">Échec du chargement des réglages depuis le Jetson</string>
+    <string name="settings_save_error">Échec de l\'enregistrement des réglages vers le Jetson</string>
+</resources>

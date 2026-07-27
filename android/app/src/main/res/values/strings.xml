@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App identity -->
+    <string name="app_name">Animal Counter</string>
+
+    <!-- Bottom-nav tabs -->
+    <string name="tab_settings">Settings</string>
+    <string name="tab_live_count">Live count</string>
+    <string name="tab_videos">Videos</string>
+
+    <!-- Reachability banner (Dashboard / Live count) -->
+    <string name="refresh">Refresh</string>
+    <string name="jetson_connected">Jetson connected</string>
+    <string name="jetson_out_of_range">Jetson out of range</string>
+    <string name="jetson_checking">Checking…</string>
+
+    <!-- Placeholder screens -->
+    <string name="coming_soon">Coming soon</string>
+
+    <!-- BL-69 — status labels (live count / history / detail) -->
+    <string name="status_running">Running</string>
+    <string name="status_ended">Ended</string>
+    <string name="status_clean">Clean</string>
+    <string name="status_power_loss">Power loss</string>
+    <string name="status_unknown">Unknown</string>
+
+    <!-- BL-69 — live count screen -->
+    <string name="live_count_label">Count</string>
+    <string name="live_auto_mode">Auto mode</string>
+    <string name="live_direct">Live</string>
+    <string name="live_idle">Idle</string>
+    <string name="live_offline">Offline</string>
+    <string name="offline_cache_banner">Offline - cached from %1$s</string>
+
+    <!-- BL-69 — shared error/empty messages -->
+    <string name="error_out_of_range">Out of range</string>
+    <string name="error_network">Network error</string>
+    <string name="error_load">Couldn\'t load</string>
+
+    <!-- BL-69 — history screen -->
+    <string name="tab_history">History</string>
+    <string name="history_title">Counting history</string>
+    <string name="empty_history">No counting</string>
+    <string name="filter_status_all">All</string>
+    <string name="filter_status_running">Running</string>
+    <string name="filter_status_clean">Clean</string>
+    <string name="filter_status_power_loss">Power loss</string>
+    <string name="filter_status_unknown">Unknown</string>
+    <string name="filter_status_ready">Ready</string>
+    <string name="filter_date_label">Date</string>
+    <string name="filter_date_none">All dates</string>
+    <string name="filter_clear">Clear</string>
+    <string name="history_net_label">Net</string>
+    <string name="history_events_label">Events</string>
+    <string name="history_duration_label">Duration</string>
+    <string name="history_loading_more">Loading more…</string>
+
+    <!-- BL-69 — session detail screen -->
+    <string name="detail_title">Session</string>
+    <string name="detail_back">Back</string>
+    <string name="group_header">Header</string>
+    <string name="group_counting">Counting</string>
+    <string name="group_guards">Guards</string>
+    <string name="group_perf">Performance &amp; thermal</string>
+    <string name="group_config">Configuration</string>
+    <string name="group_video">Video</string>
+    <string name="group_system">System</string>
+    <string name="group_timeline">Event timeline</string>
+    <string name="detail_video">Video</string>
+    <string name="detail_start">Start</string>
+    <string name="detail_end">End</string>
+    <string name="detail_duration">Duration</string>
+    <string name="detail_status">Status</string>
+    <string name="detail_end_reason">End reason</string>
+    <string name="detail_session_id">Session ID</string>
+    <string name="video_detail_title">Detail</string>
+    <string name="sessions_title">Sessions</string>
+    <string name="detail_heartbeats">Heartbeats</string>
+    <string name="detail_net">Net count</string>
+    <string name="detail_count_ltr">Left → Right</string>
+    <string name="detail_count_rtl">Right → Left</string>
+    <string name="detail_unique_ids">Unique track IDs</string>
+    <string name="detail_id_switch">ID switch recoveries</string>
+    <string name="detail_max_concurrent">Max concurrent tracks</string>
+    <string name="guard_lost_buffer">Lost buffer expired</string>
+    <string name="guard_mirror">Mirror guard</string>
+    <string name="guard_resurrection">Resurrection</string>
+    <string name="guard_reid">ReID rebind</string>
+    <string name="perf_fps_avg">FPS avg</string>
+    <string name="perf_fps_min">FPS min</string>
+    <string name="perf_frames_dropped">Frames dropped</string>
+    <string name="perf_temp_avg">SoC temp avg</string>
+    <string name="perf_temp_peak">SoC temp peak</string>
+    <string name="perf_inference_ms">Inference ms</string>
+    <string name="perf_gpu_util">GPU util</string>
+    <string name="config_model">Model</string>
+    <string name="config_thresholds">Thresholds</string>
+    <string name="config_guard_params">Guard params</string>
+    <string name="config_git_commit">Git commit</string>
+    <string name="config_image_tag">Image tag</string>
+    <string name="config_mode">Mode</string>
+    <string name="video_size">Size</string>
+    <string name="video_duration">Duration</string>
+    <string name="video_resolution">Resolution</string>
+    <string name="video_codec">Codec</string>
+    <string name="video_complete">Complete</string>
+    <string name="video_path">Path</string>
+    <string name="video_running_na">Running / N/A</string>
+    <string name="sys_disk_free_start">Disk free (start)</string>
+    <string name="sys_disk_free_end">Disk free (end)</string>
+    <string name="sys_cpu_load">CPU load avg</string>
+    <string name="sys_mem_used">Memory used</string>
+    <string name="timeline_empty">No events</string>
+    <string name="unit_seconds">s</string>
+    <string name="unit_celsius">°C</string>
+    <string name="unit_mb">MB</string>
+    <string name="unit_gb">GB</string>
+    <string name="na_label">N/A</string>
+    <string name="event_crossed_left">Crossed left</string>
+    <string name="event_crossed_right">Crossed right</string>
+    <string name="event_id_switch_recovery">ID switch recovery</string>
+    <string name="event_mirror_guard">Mirror guard</string>
+    <string name="event_resurrection">Resurrection</string>
+    <string name="event_reid_suppress">ReID suppress</string>
+    <string name="event_track_lost">Track lost</string>
+    <string name="event_lost_buffer_expired">Lost buffer expired</string>
+    <string name="event_mirror_guard_enforce">Mirror guard enforce</string>
+    <string name="event_mirror_suppress">Mirror suppress</string>
+    <string name="detail_empty">No session loaded</string>
+
+    <!-- BL-69 — dashboard screen -->
+    <string name="tab_dashboard">Dashboard</string>
+    <string name="dashboard_title">Dashboard</string>
+    <string name="dashboard_period_7">7 days</string>
+    <string name="dashboard_period_1">1 day</string>
+    <string name="dashboard_period_30">30 days</string>
+    <string name="dashboard_total_counted">Total counted</string>
+    <string name="dashboard_total_sessions">Sessions</string>
+    <string name="dashboard_total_guards">Guard events</string>
+    <string name="dashboard_avg_per_day">Avg / day</string>
+    <string name="empty_dashboard">No data for this period</string>
+
+    <!-- BL-69 — sessions tab (was startups) -->
+    <string name="tab_sessions">Sessions</string>
+    <string name="empty_startups">No startups recorded</string>
+    <string name="startup_boot_at">Boot at</string>
+    <string name="startup_image_tag">Image tag</string>
+    <string name="startup_git_commit">Git commit</string>
+    <string name="startup_mode">Mode</string>
+    <string name="startup_config_notable">Notable config</string>
+
+    <!-- BL-69 — live count status label -->
+    <string name="live_status_label">Status</string>
+
+    <!-- BL-72 — video detail (download / open) -->
+    <string name="video_count_delta">Count delta</string>
+    <string name="video_download">Download</string>
+    <string name="video_open">Open</string>
+    <string name="video_unavailable">Video no longer available (compression in progress or cleaned up)</string>
+    <string name="video_still_recording">Still recording</string>
+    <string name="video_download_failed">Download failed</string>
+
+    <!-- BL-73 — settings screen -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_auto_select">Auto-select Jetson IP</string>
+    <string name="settings_manual_ip">Manual Jetson IP</string>
+    <string name="settings_hotspot_ip">Hotspot candidate IP</string>
+    <string name="settings_lan_ip">LAN candidate IP</string>
+    <string name="settings_sync_time">Synchronize clock</string>
+    <string name="settings_sync_success">Clock synchronized ✓</string>
+    <string name="settings_sync_failure">Sync failed</string>
+    <string name="settings_syncing">Synchronizing…</string>
+
+    <!-- BL-76 — settings screen restructure (5 sections + poweroff + tracking toggles) -->
+    <string name="section_clock">Clock</string>
+    <string name="section_connection">Jetson connection</string>
+    <string name="section_power">Power</string>
+    <string name="section_tracking">Recording &amp; tracking</string>
+    <string name="section_counting_line">Counting line</string>
+    <string name="power_button">Shut down Jetson</string>
+    <string name="power_confirm_title">Shut down Jetson?</string>
+    <string name="power_confirm_message">Are you sure? The Jetson will power off after the current recording finishes.</string>
+    <string name="power_in_progress">Shutting down…</string>
+    <string name="power_success">Shutdown requested ✓</string>
+    <string name="power_error">Shutdown failed</string>
+    <string name="draw_tracking_title">Track in recordings</string>
+    <string name="draw_tracking_subtitle">Annotate boxes and trails in saved recordings</string>
+    <string name="box_tracking_title">Boxes</string>
+    <string name="centroid_tracking_title">Trails</string>
+    <string name="offset_slider_title">Counting line position</string>
+    <string name="offset_warning">Affects counting</string>
+    <string name="settings_load_error">Couldn\'t load settings from Jetson</string>
+    <string name="settings_save_error">Couldn\'t save settings to Jetson</string>
+</resources>

@@ -1,0 +1,31 @@
+# Archon per-repo config — animal-counter
+worktree:
+  baseBranch: main
+
+assistants:
+  pi:
+    extensionFlags:
+      plan: true
+    env:
+      PLANNOTATOR_REMOTE: "1"
+    # Per-node extension posture (fixes plannator phase-leak into the
+    # non-planner execution nodes). plannator-plan sets the extension's
+    # module-level `phase="planning"`; without these overrides the implement /
+    # jetson-validate / finalize nodes inherit the assistant-level
+    # `extensionFlags.plan: true` + `interactive: true`, load the plannator
+    # extension, and the write tool gets hard-blocked ("during planning, writes
+    # are limited to .md"). Disable extensions for those nodes so plannator's
+    # hooks never fire there — implement can write .py / commit normally.
+    nodes:
+      implement:
+        enableExtensions: false
+      jetson-validate:
+        enableExtensions: false
+      finalize:
+        enableExtensions: false
+
+# Project-scoped env vars (managed via Web UI or here).
+# Use the `env:` block to inject secrets into AI/bash/script workflow nodes.
+# Values are NEVER committed — keep this file gitignored or store only keys.
+# env:
+#   MY_API_KEY: ${ENV:MY_API_KEY}
