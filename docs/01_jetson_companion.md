@@ -1,4 +1,4 @@
-# 09 — Jetson companion service & API (BL-64 / BL-68)
+# 01 — Jetson companion service & API (BL-64 / BL-68)
 
 A stdlib-only Python HTTP service (`jetson-companion`) running on the Jetson
 **host** (not k3s) on port **8090**. It exposes the **companion API** consumed
@@ -10,7 +10,7 @@ over the WiFi HotSpot:
   real-time clock (RTC) at offline boot.
 - **v2 (BL-68)** — read-only history/video: serves the persistent
   counting-session history and recorded videos from the hostPath `/files`
-  (see [`11_counting_history.md`](11_counting_history.md) for the store
+  (see [`03_counting_history.md`](03_counting_history.md) for the store
   internals — JSONL schema, compaction, disk guard).
 
 This implements [GitHub issue BL-64](https://github.com/wloonis/animal-counter/issues)
@@ -51,7 +51,7 @@ Flask, no FastAPI, no `pip`, no `venv`). It binds `0.0.0.0:8090`. The API is
 versioned (`GET /api/identify` returns `"version"`): **v1** (BL-64) is the
 clock-sync surface; **v2** (BL-68) adds the read-only history/video surface
 backed by the hostPath `/files` JSONL (see
-[`11_counting_history.md`](11_counting_history.md)).
+[`03_counting_history.md`](03_counting_history.md)).
 
 ### v1 — clock-sync (BL-64)
 
@@ -140,7 +140,7 @@ are tolerated.
 | `GET` | `/api/video/<id>` | — (Range supported) | Range-streamed compressed `counting-<id>-*.mp4` (HTTP 200/206/416); 404 if absent or not yet compressed |
 
 See the [curl examples](#curl-examples) below and
-[`11_counting_history.md`](11_counting_history.md) for the JSONL line schema
+[`03_counting_history.md`](03_counting_history.md) for the JSONL line schema
 (A–G) and the store internals.
 
 ## NTP note
@@ -342,6 +342,6 @@ explicitly out of scope for v1/v2 and will be added in a future backlog item.
   the v2 history/video endpoints.
 - **BL-68/71** — the read-only history/video endpoints (v2) served here; the
   backing JSONL store is documented in
-  [`11_counting_history.md`](11_counting_history.md).
+  [`03_counting_history.md`](03_counting_history.md).
 - **BL-66** — `/api/count`, the future live-counting endpoint on the same
   companion service (not yet implemented).

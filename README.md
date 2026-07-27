@@ -35,9 +35,9 @@ The two repos communicate ONLY via the shared-file contract in
 
 | Doc | What it covers |
 |-----|----------------|
-| [`docs/09_jetson_companion.md`](docs/09_jetson_companion.md) | Companion service & HTTP API (clock-sync, history, video, settings, power) |
-| [`docs/10_android_app.md`](docs/10_android_app.md) | Android app (probe-based IP, live count, sessions, videos, settings) |
-| [`docs/11_counting_history.md`](docs/11_counting_history.md) | The `counting-history.jsonl` log format (writer side, for reference) |
+| [`docs/01_jetson_companion.md`](docs/01_jetson_companion.md) | Companion service & HTTP API (clock-sync, history, video, settings, power) |
+| [`docs/02_android_app.md`](docs/02_android_app.md) | Android app (probe-based IP, live count, sessions, videos, settings) |
+| [`docs/03_counting_history.md`](docs/03_counting_history.md) | The `counting-history.jsonl` log format (writer side, for reference) |
 | [`docs/IPC_CONTRACT.md`](docs/IPC_CONTRACT.md) | **Authoritative** shared-file contract between this repo and the sister repo |
 
 ---

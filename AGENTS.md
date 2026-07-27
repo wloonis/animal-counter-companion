@@ -249,7 +249,7 @@ does NOT touch the countingapp or k3s.
 - Companion API: `POST /api/time` (clock sync), `GET /api/count` (live
   heartbeat), `GET /api/sessions`, `GET /api/summary`, `GET /api/videos`,
   `GET /api/video/<id>` (range-stream), `GET|PUT /api/settings`,
-  `POST /api/power`, `GET /api/identify`. See `docs/09_jetson_companion.md`.
+  `POST /api/power`, `GET /api/identify`. See `docs/01_jetson_companion.md`.
 
 **Versioning:** bump the `COMPANION_VERSION` constant in
 `companion/jetson-companion.py` on any API/behavior change. The Android app
@@ -282,7 +282,7 @@ checks `GET /api/identify` and warns on mismatch.
 
 - **API contract with Android**: the companion HTTP API is internal to THIS
   repo (companion + Android move together). Document endpoint shapes in
-  `docs/09_jetson_companion.md`. The Android app's `JetsonClient` is the client.
+  `docs/01_jetson_companion.md`. The Android app's `JetsonClient` is the client.
 - **GitHub issues** use the `BL-<n> — <title>` naming convention. Always
   increment from the highest existing `BL-<n>` **across both repos** — the BL
   numbering is shared system-wide (check `gh issue list --state all` in BOTH

@@ -100,7 +100,7 @@ nodes:
         1. **Do light recon** — `ls android/ 2>/dev/null`, check if a gradle
            project exists, read any existing `android/app/build.gradle*`,
            `AndroidManifest.xml`. Also check the companion contract in
-           `docs/09_jetson_companion.md` for the exact /api/time request shape.
+           `docs/01_jetson_companion.md` for the exact /api/time request shape.
         2. **Check whether every decision is already resolved.** The
            "ALREADY DECIDED" list above + the user's request may already close
            ALL open taste-calls (tab names/order, app name, icon, theme, IP
@@ -238,7 +238,7 @@ nodes:
 
       Every task must be atomic, name a specific file under `android/`, and
       describe a verifiable action. You may READ CLAUDE.md/AGENTS.md/README.md
-      and `docs/09_jetson_companion.md` (companion /api/time contract), but do
+      and `docs/01_jetson_companion.md` (companion /api/time contract), but do
       NOT read or edit source files.
 
       ## Step 2: Submit for review
@@ -262,7 +262,7 @@ nodes:
       ## Rules (non-negotiable)
       - PLAN.md and `.archon-relay/PLANNOTATOR.md` are the ONLY files you may
         create/edit. You may READ PLAN.md, CLAUDE.md, AGENTS.md, README.md,
-        docs/09_jetson_companion.md.
+        docs/01_jetson_companion.md.
       - Do NOT call bash/agent_browser/cron_create or run gradle/build.
       - **Plan approval is a HUMAN gate** — only the user approves/denies via
         the plannotator browser. Never auto-approve.
