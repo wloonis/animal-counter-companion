@@ -80,6 +80,24 @@ internal fun isValidIdentifyBody(body: String): Boolean = runCatching {
     JSONObject(body).optString("service") == "jetson-companion"
 }.getOrDefault(false)
 
+/**
+ * Extract the companion `version` string from a `GET /api/identify` body
+ * (BL-77 About card). The body MUST already pass [isValidIdentifyBody] (a
+ * strict `service == "jetson-companion"` check); this then reads the
+ * `version` field. Throws [IllegalArgumentException] on an invalid body so
+ * the shared [JetsonClient.getJson] parse lambda maps it to
+ * [ApiResult.NetworkError] (consistent with the other typed getters). The
+ * `version` field may legitimately be empty (`optString` returns `""` for a
+ * missing key); the About UI treats a blank as offline. Extracted as a pure
+ * top-level `internal` function so the unit tests can exercise it without HTTP.
+ */
+internal fun parseIdentifyVersion(body: String): String {
+    require(isValidIdentifyBody(body)) {
+        "Not a valid Jetson identify body"
+    }
+    return JSONObject(body).optString("version")
+}
+
 private const val JETSON_PORT = 8090
 
 /** Read/connect timeout for the companion probe/push. */
@@ -382,6 +400,25 @@ object JetsonClient {
         network: Network? = null,
     ): ApiResult<PoweroffResponse> =
         sendJson("POST", ip, "/api/power", "{}", network) { parsePoweroffResponse(it) }
+
+    /**
+     * `GET /api/identify` → companion `version` string (BL-77 About card).
+     *
+     * A lightweight, off-the-probe-path variant of [identify]: it reuses the
+     * shared WiFi-bound [getJson] transport and [isValidIdentifyBody] validator
+     * but returns just the `version` string wrapped in [ApiResult] (not a
+     * [SyncEvent]), so the About fetch never touches the probe/log path → zero
+     * counting/core impact. On a valid 200 body the `version` field is
+     * extracted via [parseIdentifyVersion]; an invalid/non-Jetson body throws
+     * inside the parse lambda so [getJson] maps it to
+     * [ApiResult.NetworkError] (consistent with the other typed getters'
+     * parse-failure handling).
+     */
+    suspend fun identifyVersion(
+        ip: String,
+        network: Network? = null,
+    ): ApiResult<String> =
+        getJson(ip, "/api/identify", network) { parseIdentifyVersion(it) }
 
     /**
      * Shared transport for the BL-76 write endpoints: binds to [network]
