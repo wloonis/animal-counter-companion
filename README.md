@@ -98,6 +98,92 @@ repos.**
 
 ---
 
+## Companion features
+
+`companion/jetson-companion.py` is a **stdlib-only** Python HTTP service
+(`http.server` — no Flask, no FastAPI, no `pip`, no `venv`) that runs on the
+Jetson **host** as a systemd unit (`jetson-companion.service`, port **8090**).
+It is intentionally lightweight so it can be deployed offline, over the Jetson
+WiFi HotSpot, with no internet and no package download.
+
+It is the **only** thing the Android app talks to. It bridges the app to the
+countingapp exclusively via the shared files in `/data/orin/files` — it never
+calls the countingapp's container API directly.
+
+### Never starves inference
+
+The companion runs **on the same host** as the inference pod, so its systemd
+unit is deliberately constrained to keep it subservient to the countingapp:
+`Nice=10`, `CPUQuota=30%`, best-effort I/O. **Do not remove these limits** —
+the counting core must always get the CPU/IO it needs.
+
+### Clock sync (the Jetson has no RTC)
+
+The production Jetson has no coin-cell battery → no real-time clock. On every
+offline boot its clock is stuck at the build date (or `1970`). In HotSpot mode
+the Android phone is the **only** clock source: the app's "Synchroniser
+l'heure" button `POST /api/time` with the phone's ISO8601 time + IANA timezone,
+and the companion applies it via `timedatectl` (NTP is disabled first so the
+manual write sticks). On a Jetson with a **DS3231 RTC** installed, the same
+call also runs `hwclock --systohc` to **persist** the correction into the RTC,
+so the next boot is sane without a phone. Best-effort: silently no-ops if no
+DS3231 is present.
+
+### HTTP API
+
+All endpoints are JSON, unauthenticated (the HotSpot is a closed offline LAN —
+the only peer is the phone). Versioning: `GET /api/identify` returns the
+service `version`; the Android app checks it and warns on mismatch. Bump the
+`COMPANION_VERSION` constant on any API/behavior change.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/identify` | Service discovery — name + `version` |
+| `POST` | `/api/time` | Set the Jetson clock + timezone (persists to DS3231 if present) |
+| `GET` | `/api/count` | Live count / status / auto_mode from the newest heartbeat |
+| `GET` | `/api/sessions` | Paginated session summaries (`limit`/`offset`), newest first |
+| `GET` | `/api/sessions/<id>` | Full session detail (aggregate + heartbeats + events + end) |
+| `GET` | `/api/summary` | Daily aggregates (`?days=7`): count / sessions / guard events |
+| `GET` | `/api/startups` | Startup history lines (`?limit=50`) |
+| `GET` | `/api/videos` | Paginated video list (running recording is the synthetic first row) |
+| `GET` | `/api/video/<id>` | Range-streamed compressed `counting-<id>-*.mp4` (HTTP 200/206/416) |
+| `GET` | `/api/settings` | Current `runtime-settings.json` (`{}` if absent) |
+| `PUT` | `/api/settings` | PATCH-like merge into `runtime-settings.json` (atomic write) |
+| `POST` | `/api/power` | Writes the `.arret_requested` sentinel → countingapp stops + powers off |
+
+### Read-only history & video
+
+The history/video endpoints (`/api/sessions`, `/api/sessions/<id>`,
+`/api/summary`, `/api/startups`, `/api/videos`, `/api/video/<id>`) are
+**read-only** — the countingapp is the sole writer of `counting-history.jsonl`.
+The reader uses a lazy in-memory `HistoryIndex`: it scans the JSONL once on the
+first request, caches the `session_id → {offsets, summary}` map, and
+invalidates the cache when the file size changes. Partial last lines are
+tolerated. Video streaming supports HTTP `Range` requests so the Android app
+can resume/partial-download large clips.
+
+### Runtime-settings relay (hot-reload, no restart)
+
+`PUT /api/settings` writes `runtime-settings.json` (tracking toggles
+`draw_tracking` / `box_tracking` / `centroid_tracking` +
+`offset_counting_line`). The write is a **PATCH-like merge** (only the keys
+present in the body are overwritten; unknown keys are ignored for
+forward-compat) and is **atomic** (temp file + `os.replace`, so the
+countingapp never reads a half-written file). The countingapp hot-reloads this
+file at each recording start — **no restart needed** to pick up new settings.
+
+### Power-off sentinel
+
+`POST /api/power` does **not** power off the Jetson itself. It writes the
+`.arret_requested` sentinel file; the countingapp polls it and runs its own
+clean finalize → stop → poweroff sequence after the current recording. The
+companion stays a thin relay.
+
+See [`docs/01_jetson_companion.md`](docs/01_jetson_companion.md) for the full
+endpoint reference, curl examples, and the NTP/RTC notes.
+
+---
+
 ## Development workflow (Archon)
 
 Autonomous dev uses Archon. The Android workflow
