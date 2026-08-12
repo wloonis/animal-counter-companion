@@ -98,6 +98,83 @@ repos.**
 
 ---
 
+## Features
+
+The Android app ("Animal Counter") is the only way to interact with the
+counter from the phone. It connects to the Jetson (home WiFi or its HotSpot)
+and shows a bottom navigation bar with five tabs. The UI is available in both
+French and English.
+
+### Dashboard
+
+An overview of counting over a chosen period (**1 day**, **7 days** or **30
+days**): total counted, number of sessions, guard events and average per day.
+Handy for tracking a herd's activity over the week.
+
+### Live count
+
+**Real-time counting**: the current number, the status (live, idle, offline)
+and the auto mode. This is the tab to keep open during a recording to follow
+the count as it happens. When the Jetson is out of range, the last known value
+stays on screen from the offline cache.
+
+### History
+
+The list of **all past counting sessions**, newest first, with automatic
+load-more as you scroll. You can filter by **status** (running, clean, power
+loss…) and by **date**.
+
+For each session you see the net count, the direction (left → right / right →
+left), the number of events and the duration.
+
+**Tap a session** → **detail** page: header, counters, guards, performance &
+thermal, configuration, system info and the **event timeline** (crossings, ID
+recoveries, mirror guards…).
+
+### Video detail & download
+
+From a session's detail you reach the matching **video**. The video detail
+page shows the size, duration, resolution, codec and count delta, with two
+actions:
+
+- **Download** — saves the `.mp4` to the phone (resumable, chunked download for
+  large clips).
+- **Open** — plays the video in the app once it's downloaded.
+
+If the video is still recording or has already been cleaned up, a message says
+it's unavailable.
+
+### Sessions
+
+The Jetson **startup** history: boot date/time, image tag, Git commit, mode and
+notable config. Useful to check when the counter (re)started and with which
+version.
+
+### Settings
+
+Five sections:
+
+- **Clock** — "Synchroniser l'heure" button pushes the phone's time to the
+  Jetson (which has no internal clock) and persists it into the DS3231 RTC
+  module if present.
+- **Jetson connection** — automatic IP selection (HotSpot or LAN) or a manual
+  IP.
+- **Power** — "Arrêter le Jetson" button: the Jetson shuts down cleanly at the
+  end of the current recording.
+- **Recording & tracking** — toggles to annotate videos (boxes, trails) and the
+  **counting line position** setting (which affects counting).
+- **About** — app version and Jetson companion version (with a warning on
+  mismatch).
+
+The tracking and counting-line settings are **hot-reloaded**: they take effect
+at the next recording, with no Jetson restart.
+
+> For the technical companion HTTP API reference (endpoints, clock sync,
+> power-off sentinel), see
+> [`docs/01_jetson_companion.md`](docs/01_jetson_companion.md).
+
+---
+
 ## Development workflow (Archon)
 
 Autonomous dev uses Archon. The Android workflow
