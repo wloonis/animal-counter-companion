@@ -79,15 +79,43 @@ DEFAULT_HISTORY_FILE = "/data/orin/files/counting-history.jsonl"
 HISTORY_FILE = os.environ.get("HISTORY_FILE_HOST", DEFAULT_HISTORY_FILE)
 # Directory holding the JSONL and the compressed counting-*.mp4 files
 # (the compression cron writes counting-{ts}-#N.mp4 here). Used by
-# /api/video/<id> to resolve a video_id to its on-disk file.
+# /api/video/<id> to resolve a video_id to its on-disk file. This is
+# the /files hostPath (DATA: counting-history.jsonl + mp4 clips); it is
+# NOT used for config/control files (see CONF_DIR below, BL-79/BL-80).
 FILES_DIR = os.path.dirname(HISTORY_FILE) or "/data/orin/files"
-# BL-76: shared IPC files in FILES_DIR (the /files hostPath, host
-# /data/orin/files). runtime-settings.json is read at hot-reload time
-# by the counting app at the start of each recording (main.py); the
-# .arret_requested sentinel is polled by display_thread.py and, when
-# fresh (mtime > app_start_time), triggers the BL-62 poweroff seq.
-RUNTIME_SETTINGS_FILE = os.path.join(FILES_DIR, "runtime-settings.json")
-POWER_SENTINEL_FILE = os.path.join(FILES_DIR, ".arret_requested")
+# BL-79/BL-80: config/control IPC files live in a SEPARATE hostPath
+# /conf (host /data/orin/conf), split from /files (data). The
+# countingapp reads runtime-settings.json + .arret_requested from /conf
+# (BL-79 migrated them out of /files); the companion must write them
+# there too, or the BL-76 hot-reload + BL-71 power-off break. Configurable
+# via CONF_DIR_HOST (mirrors HISTORY_FILE_HOST). HISTORY_FILE/FILES_DIR
+# stay on /files (data) — only the two control files moved.
+DEFAULT_CONF_DIR = "/data/orin/conf"
+CONF_DIR = os.environ.get("CONF_DIR_HOST", DEFAULT_CONF_DIR)
+# BL-76: runtime-settings.json is read at hot-reload time by the counting
+# app at the start of each recording (main.py); the .arret_requested
+# sentinel is polled by display_thread.py and, when fresh
+# (mtime > app_start_time), triggers the BL-62 poweroff seq. Both now
+# live in CONF_DIR (/conf hostPath, BL-79/BL-80), NOT FILES_DIR.
+RUNTIME_SETTINGS_FILE = os.path.join(CONF_DIR, "runtime-settings.json")
+POWER_SENTINEL_FILE = os.path.join(CONF_DIR, ".arret_requested")
+
+
+def _ensure_conf_dir():
+    """Best-effort create CONF_DIR if absent (BL-80).
+
+    The companion may start before the countingapp deploy has created
+    /data/orin/conf, or the dir may be absent on a partial deploy. We
+    create it lazily before the first write of runtime-settings / the
+    power sentinel so PUT /api/settings and POST /api/power don't fail
+    with ENOENT. Errors are logged to stderr, not fatal (the write itself
+    is guarded by its own try/except -> 500).
+    """
+    try:
+        os.makedirs(CONF_DIR, exist_ok=True)
+    except OSError as exc:
+        sys.stderr.write("[{}] [conf-dir] makedirs failed: {}\n".format(
+            datetime.datetime.now().isoformat(), exc))
 # Chunk size for streaming video bytes to the client.
 _VIDEO_CHUNK = 64 * 1024
 
@@ -1227,6 +1255,7 @@ class CompanionHandler(BaseHTTPRequestHandler):
         # so a crash mid-write never leaves a partial JSON file
         # (the counting app reads best-effort on the next video).
         try:
+            _ensure_conf_dir()
             tmp_path = RUNTIME_SETTINGS_FILE + ".tmp"
             with open(tmp_path, "w") as fh:
                 json.dump(merged, fh, indent=2, sort_keys=True)
@@ -1256,6 +1285,7 @@ class CompanionHandler(BaseHTTPRequestHandler):
             _read_json_body(self)  # best-effort, ignore errors
 
             try:
+                _ensure_conf_dir()
                 if os.path.exists(POWER_SENTINEL_FILE):
                     os.remove(POWER_SENTINEL_FILE)
                 tmp_path = POWER_SENTINEL_FILE + ".tmp"

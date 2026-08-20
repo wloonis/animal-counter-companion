@@ -10,8 +10,12 @@ over the WiFi HotSpot:
   real-time clock (RTC) at offline boot.
 - **v2 (BL-68)** — read-only history/video: serves the persistent
   counting-session history and recorded videos from the hostPath `/files`
-  (see [`03_counting_history.md`](03_counting_history.md) for the store
+  (DATA — see [`03_counting_history.md`](03_counting_history.md) for the store
   internals — JSONL schema, compaction, disk guard).
+- **v2 (BL-76/BL-71)** — config/control relay: writes `runtime-settings.json`
+  (hot-reload) + `.arret_requested` (power-off sentinel) to the hostPath `/conf`
+  (CONFIG/CONTROL — split from `/files` by BL-79 in the sister repo; the
+  companion writes `/conf` as of BL-80).
 
 This implements [GitHub issue BL-64](https://github.com/wloonis/animal-counter/issues)
 and [BL-68](https://github.com/wloonis/animal-counter/issues).
@@ -50,8 +54,11 @@ The service is a plain `http.server`-based daemon (Python stdlib only — no
 Flask, no FastAPI, no `pip`, no `venv`). It binds `0.0.0.0:8090`. The API is
 versioned (`GET /api/identify` returns `"version"`): **v1** (BL-64) is the
 clock-sync surface; **v2** (BL-68) adds the read-only history/video surface
-backed by the hostPath `/files` JSONL (see
-[`03_counting_history.md`](03_counting_history.md)).
+backed by the hostPath `/files` JSONL (DATA — see
+[`03_counting_history.md`](03_counting_history.md)); **v2** (BL-76/BL-71) also
+writes config/control files (`runtime-settings.json`, `.arret_requested`) to
+the hostPath `/conf` (CONFIG/CONTROL — split from `/files` by BL-79; companion
+aligned by BL-80).
 
 ### v1 — clock-sync (BL-64)
 
