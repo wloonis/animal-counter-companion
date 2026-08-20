@@ -71,6 +71,13 @@ via the `HISTORY_FILE_HOST` env var in the systemd unit (default
 `/data/orin/files/counting-history.jsonl`). The pod writes the pod-side path
 (`/files/...`), configurable via `HISTORY_FILE` in `app/src/settings.py`.
 
+> **BL-79/BL-80 — `/files` is DATA only.** Config/control files
+> (`runtime-settings.json`, `.arret_requested`) moved to a separate hostPath
+> `/data/orin/conf` (`/conf` in the pod) — they are NO LONGER in `/files`.
+> The companion writes them to `/conf` as of BL-80 (see
+> [`IPC_CONTRACT.md`](IPC_CONTRACT.md) + [`01_jetson_companion.md`](01_jetson_companion.md)).
+> The history JSONL + mp4 clips above stay on `/files` (data) — unchanged.
+
 ## JSONL line schema
 
 Every line is a self-contained JSON object with a `"type"` discriminator and a

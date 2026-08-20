@@ -18,10 +18,19 @@
 # (passwordless sudo assumed; or add -e ansible_become_password=...)
 #
 # Variables (defaults, override with -e):
-#   companion_script : /usr/local/bin/jetson-companion
-#   companion_service: jetson-companion.service
-#   companion_port   : 8090
-#   companion_history_file_host : /data/orin/files/counting-history.jsonl
+#   companion_script          : /usr/local/bin/jetson-companion
+#   companion_service         : jetson-companion.service
+#   companion_port             : 8090
+#   companion_history_file_host: /data/orin/files/counting-history.jsonl (/files data)
+#   companion_conf_dir_host    : /data/orin/conf (/conf config/control, BL-80)
+#
+# NOTE: the systemd unit is installed as a STATIC copy (see the
+# Install jetson-companion.service task below) — the HISTORY_FILE_HOST
+# and CONF_DIR_HOST paths are hardcoded in companion/jetson-companion.service
+# (matching the existing HISTORY_FILE_HOST pattern). The vars above are
+# defined for symmetry + the /conf mkdir task; a future template refactor
+# would render both env lines from these vars. Override via -e does NOT
+# reach the static unit today (same limitation as HISTORY_FILE_HOST).
 
 - name: Deploy Jetson companion HTTP bridge
   hosts: all
@@ -31,11 +40,20 @@
     companion_service: jetson-companion.service
     companion_port: 8090
     companion_history_file_host: /data/orin/files/counting-history.jsonl
+    companion_conf_dir_host: /data/orin/conf
 
   tasks:
     - name: Ensure /data/orin/files exists (shared with the countingapp pod)
       ansible.builtin.file:
         path: /data/orin/files
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Ensure /data/orin/conf exists (config/control hostPath, BL-80)
+      ansible.builtin.file:
+        path: "{{ companion_conf_dir_host }}"
         state: directory
         owner: root
         group: root

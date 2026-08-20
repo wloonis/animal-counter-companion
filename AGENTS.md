@@ -153,15 +153,21 @@ Plannotator (plan review): `http://127.0.0.1:19432` (only while a plan is pendin
 ## 6. The IPC contract with the sister repo
 
 **Read [`docs/IPC_CONTRACT.md`](docs/IPC_CONTRACT.md).** The companion talks to
-the `animal-counter` countingapp ONLY via files in `/data/orin/files`
-(hostPath `/files`):
+the `animal-counter` countingapp ONLY via shared files in two hostPaths on the
+Jetson: `/data/orin/files` (hostPath `/files` — **data**: counting-history.jsonl
++ mp4 clips) and `/data/orin/conf` (hostPath `/conf` — **config/control**:
+runtime-settings.json + .arret_requested; split introduced by BL-79 in the
+sister repo, companion aligned by BL-80):
 
-- **companion reads** `counting-history.jsonl` (written by countingapp) — the
-  JSONL schema is the tightest contract; the companion's `HistoryIndex` parser
-  must match the countingapp's `app/src/core/history.py` writer.
+- **companion reads** `counting-history.jsonl` (written by countingapp) from
+  `/files` — the JSONL schema is the tightest contract; the companion's
+  `HistoryIndex` parser must match the countingapp's `app/src/core/history.py`
+  writer.
 - **companion writes** `runtime-settings.json` (read by countingapp at each
-  recording start — hot-reload) and `.arret_requested` (power-off sentinel).
-- **companion streams** `counting-*.mp4` clips (produced by the countingapp).
+  recording start — hot-reload, BL-76) and `.arret_requested` (power-off
+  sentinel, BL-71) to `/conf` (BL-80; previously `/files`).
+- **companion streams** `counting-*.mp4` clips (produced by the countingapp)
+  from `/files`.
 
 Any format change is a **coordinated change across both repos**. Keep
 `docs/IPC_CONTRACT.md` identical in both. Prefer additive changes (new fields,
@@ -246,6 +252,10 @@ does NOT touch the countingapp or k3s.
 - The companion reads `/data/orin/files/counting-history.jsonl` (HISTORY_FILE_HOST
   env, default `/data/orin/files/counting-history.jsonl`). The shared path is
   created by the countingapp deploy; the companion deploy only ensures the dir.
+- The companion writes `runtime-settings.json` + `.arret_requested` to
+  `/data/orin/conf/` (CONF_DIR_HOST env, default `/data/orin/conf` — BL-80; split
+  from `/files` data by BL-79). The companion deploy ensures `/data/orin/conf`
+  exists too (it must not depend on the countingapp deploy order).
 - Companion API: `POST /api/time` (clock sync), `GET /api/count` (live
   heartbeat), `GET /api/sessions`, `GET /api/summary`, `GET /api/videos`,
   `GET /api/video/<id>` (range-stream), `GET|PUT /api/settings`,
@@ -293,7 +303,8 @@ checks `GET /api/identify` and warns on mismatch.
 - **Jetson**: Orin Nano 8GB "Super". Home WiFi static `192.168.0.180`; hotspot
   `192.168.100.1`. User `nano-counter`, password from `.env.local`
   (`JETSON_PASSWORD`). Companion port 8090. App path on Jetson
-  `/data/orin/git/animal-counting/app` (sister repo); files `/data/orin/files/`.
+  `/data/orin/git/animal-counting/app` (sister repo); data `/data/orin/files/`,
+  config/control `/data/orin/conf/` (BL-80).
 - **No counting logic here** — never touch OC-SORT, crossing detection, guard
   params, tracker params. Those live in the sister repo. If a change seems to
   need counting logic, it belongs in `wloonis/animal-counter`, not here.
