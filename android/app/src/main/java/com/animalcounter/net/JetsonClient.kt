@@ -41,7 +41,7 @@ import java.net.URL
  * isolated network — see `AndroidManifest.xml` `usesCleartextTraffic`).
  */
 /**
- * Find a network that carries WIFI transport, or null.
+ * Find a network that carries WIFI transport (and is NOT a VPN), or null.
  *
  * Why this matters: when the phone has mobile data (5G) AND is joined to the
  * Jetson HotSpot WiFi (which has no internet), Android's *active/default*
@@ -54,12 +54,59 @@ import java.net.URL
  * Callers that already have a [Network] from a
  * [ConnectivityManager.NetworkCallback] (the foreground service) pass it
  * directly; foreground/UI callers use this helper.
+ *
+ * Why VPN networks are EXCLUDED (BL-81): a VPN that rides on WiFi (e.g.
+ * Tailscale, always-on VPN, per-app VPN) exposes `TRANSPORT_WIFI` *inherited*
+ * from its underlying network, in addition to `TRANSPORT_VPN`. There are two
+ * distinct failure modes when a VPN is active, both fixed by returning null
+ * (i.e. using the system default network, unbound) whenever ANY VPN network
+ * is present:
+ *
+ *  1. Selection: without the VPN exclusion this helper could return the VPN
+ *     network first (the order of [ConnectivityManager.allNetworks] is
+ *     unspecified); binding the probe to it routes `http://192.168.0.180:8090/...`
+ *     through the VPN tunnel (tun0), which only routes the VPN's own subnets
+ *     (e.g. Tailscale's 100.x / fd7a:), NOT the Jetson LAN `192.168.0.0/24` —
+ *     the probe is silently dropped.
+ *  2. EPERM bind: a *non-bypassable* VPN (Tailscale `bypassable=false`)
+ *     forbids the app from pinning a socket to a non-VPN network, so
+ *     `Network.openConnection` then raises `SocketException: Binding socket to
+ *     network N failed: EPERM (Operation not permitted)` — the probe never
+ *     connects even when the right WiFi network is selected.
+ *
+ * Returning null when a VPN is present makes [openBound] use the default
+ * network; a split-tunnel VPN (Tailscale's default) lets the LAN traffic fall
+ * through to the VPN's underlying WiFi, which is exactly what reaches the
+ * Jetson (same path the shell uses). When NO VPN is active we still bind to the
+ * (non-VPN) WiFi so the probe routes over the Jetson HotSpot even when mobile
+ * data is the default internet uplink. The per-network `!VPN` guard is kept as
+ * defense-in-depth. Fallback to null (no WIFI network at all) also uses the
+ * default network, correct when the WiFi is the default uplink.
  */
 fun activeWifiNetwork(cm: ConnectivityManager): Network? {
     @Suppress("DEPRECATION")
-    for (network in cm.allNetworks) {
+    val all = cm.allNetworks
+    // BL-81: when a VPN is active, do NOT bind the request to a specific
+    // network. A non-bypassable VPN (e.g. Tailscale with bypassable=false)
+    // makes Network.openConnection bind the socket with EPERM ("Binding socket
+    // to network N failed: EPERM"), so any pinned, non-VPN network is
+    // unreachable from the app. Returning null makes [openBound] use the
+    // system default network instead — and a split-tunnel VPN (Tailscale's
+    // default: it only routes its own 100.x/fd7a: subnets) lets LAN traffic
+    // (e.g. the Jetson at 192.168.0.180) fall through to the VPN's underlying
+    // WiFi, which is exactly what reaches the Jetson. When NO VPN is active we
+    // still bind to the (non-VPN) WiFi so the probe routes over the Jetson
+    // HotSpot even when mobile data is the default internet uplink.
+    val hasVpn = all.any { nm ->
+        cm.getNetworkCapabilities(nm)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+    }
+    if (hasVpn) return null
+    for (network in all) {
         val caps = cm.getNetworkCapabilities(network) ?: continue
-        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return network
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+            && !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+            return network
+        }
     }
     return null
 }
