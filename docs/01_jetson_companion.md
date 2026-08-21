@@ -144,6 +144,7 @@ are tolerated.
 | `GET` | `/api/summary` | `days=7` | Daily aggregates (count per day, sessions, guard events) |
 | `GET` | `/api/startups` | `limit=50` | Startup history lines |
 | `GET` | `/api/videos` | `limit=50&offset=0` | Paginated video summaries (one row per recorded video + running recording as synthetic first row), newest first |
+| `GET` | `/api/videos/<id>` | — | Full video detail: per-video counting metadata (directional counts `count_left_to_right`/`count_right_to_left`/`count_down_to_up`/`count_up_to_down` + `counting_line_orientation` — BL-85, guard interventions, track_lost, events timeline) + perf/thermal, attributed by timespan |
 | `GET` | `/api/video/<id>` | — (Range supported) | Range-streamed compressed `counting-<id>-*.mp4` (HTTP 200/206/416); 404 if absent or not yet compressed |
 
 See the [curl examples](#curl-examples) below and
@@ -335,6 +336,25 @@ curl 'http://192.168.0.180:8090/api/summary?days=7'
 curl 'http://192.168.0.180:8090/api/videos?limit=10'
 # {"videos":[{"video_id":"counting-20250608-100000","filename":"counting-20250608-100000-#9.mp4","duration":120,"count_delta":9,"session_id":"...","ts":"...","status":"ready"},...],"limit":10,"offset":0,"total":N}
 ```
+
+**Get a video's full detail** (`/api/videos/<id>` — per-video counting metadata,
+attributed by timespan; BL-71). Includes the directional counts, guard
+interventions, track_lost, the events timeline + perf/thermal:
+```bash
+curl http://192.168.0.180:8090/api/videos/counting-20250608-100000
+# {"video_id":"...","filename":"...","duration":120,"count_delta":9,
+#  "session_id":"...","ts":"...","status":"ready",
+#  "count_left_to_right":6,"count_right_to_left":0,
+#  "count_down_to_up":0,"count_up_to_down":0,
+#  "counting_line_orientation":"vertical",
+#  "guard_interventions":{...},"track_lost":0,"events":[...],"perf":{...}}
+```
+The directional counts are **orientation-aware (BL-85)**:
+`count_left_to_right` / `count_right_to_left` are populated for a **vertical**
+line (direction `LEFT`/`RIGHT`); `count_down_to_up` / `count_up_to_down` for a
+**horizontal** line (direction `UP`/`DOWN`). `counting_line_orientation` is
+resolved from the session's `session_start` metadata (default `"vertical"` for
+pre-BL-83 sessions) so the client picks the right pair + labels.
 
 **Range-stream a video (resumable/partial download):**
 ```bash
