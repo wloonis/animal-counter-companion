@@ -123,7 +123,7 @@ change.
   `mask_snapshot_error`, `mask_snapshot_loading`, `mask_zone_label`,
   `mask_draw_overlay_title`, `mask_save`, `mask_saving`, `mask_saved`,
   `mask_save_error`, `mask_drag_hint`, `mask_empty`.
-- [ ] Task 11: EDIT `docs/01_jetson_companion.md` — document `GET /api/snapshot`
+- [x] Task 11: EDIT `docs/01_jetson_companion.md` — document `GET /api/snapshot`
   (purpose, 200 `image/jpeg` / 404, `no-store`), add `mask_zones` +
   `draw_mask_zones` to the `PUT/GET /api/settings` recognised-keys list + curl
   examples (PUT a `mask_zones` array; negative test for an invalid rect → 400),
