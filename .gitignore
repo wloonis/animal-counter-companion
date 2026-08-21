@@ -35,4 +35,4 @@ companion/__pycache__/
 .pi-loop.json
 .pi-loop.json.lock
 validation-report.json
-save/
+save/PLAN.md
