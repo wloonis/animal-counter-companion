@@ -37,6 +37,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -62,6 +63,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.animalcounter.BuildConfig
 import com.animalcounter.R
+import com.animalcounter.data.OFFSET_SLIDER_MAX
+import com.animalcounter.data.OFFSET_SLIDER_MIN
 import com.animalcounter.ui.common.AppNavIcon
 
 /**
@@ -139,6 +142,7 @@ fun SettingsScreen() {
     val boxTracking by vm.boxTracking.collectAsState()
     val centroidTracking by vm.centroidTracking.collectAsState()
     val offsetCountingLine by vm.offsetCountingLine.collectAsState()
+    val countingLineOrientation by vm.countingLineOrientation.collectAsState()
     val companionVersion by vm.companionVersion.collectAsState()
     val classCatalog by vm.classCatalog.collectAsState()
 
@@ -425,8 +429,30 @@ fun SettingsScreen() {
                 }
             }
 
-            // ---- 5. Ligne de comptage ----
+            // ---- 5. Ligne de comptage (BL-84: orientation H/V + offset signé) ----
             Section(title = stringResource(R.string.section_counting_line)) {
+                // Orientation selector: two buttons (Verticale / Horizontale).
+                Text(
+                    text = stringResource(R.string.offset_orientation_label),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilterChip(
+                        selected = countingLineOrientation == "vertical",
+                        onClick = { vm.setCountingLineOrientation("vertical") },
+                        label = { Text(stringResource(R.string.offset_orientation_vertical)) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    FilterChip(
+                        selected = countingLineOrientation == "horizontal",
+                        onClick = { vm.setCountingLineOrientation("horizontal") },
+                        label = { Text(stringResource(R.string.offset_orientation_horizontal)) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
                 Text(
                     text = stringResource(R.string.offset_slider_title),
                     style = MaterialTheme.typography.bodyLarge,
@@ -434,13 +460,14 @@ fun SettingsScreen() {
                 Slider(
                     value = offsetCountingLine.toFloat(),
                     onValueChange = { vm.setOffsetCountingLine(it.toInt()) },
-                    valueRange = 0f..100f,
+                    // BL-84: signed range, centered at 0.
+                    valueRange = OFFSET_SLIDER_MIN.toFloat()..OFFSET_SLIDER_MAX.toFloat(),
                     steps = 0,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                // Live value readout (e.g. "10").
+                // Live value readout (signed, e.g. "-10" / "0" / "+12").
                 Text(
-                    text = offsetCountingLine.toString(),
+                    text = if (offsetCountingLine > 0) "+${offsetCountingLine}" else offsetCountingLine.toString(),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

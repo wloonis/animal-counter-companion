@@ -24,11 +24,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.animalcounter.data.DEFAULT_BOX_TRACKING
 import com.animalcounter.data.DEFAULT_CENTROID_TRACKING
+import com.animalcounter.data.DEFAULT_COUNTING_LINE_ORIENTATION
 import com.animalcounter.data.DEFAULT_DRAW_TRACKING
 import com.animalcounter.data.DEFAULT_HOTSPOT_IP
 import com.animalcounter.data.DEFAULT_JETSON_IP
 import com.animalcounter.data.DEFAULT_LAN_IP
 import com.animalcounter.data.DEFAULT_OFFSET_COUNTING_LINE
+import com.animalcounter.data.OFFSET_SLIDER_MAX
+import com.animalcounter.data.OFFSET_SLIDER_MIN
 import com.animalcounter.data.SettingsRepository
 import com.animalcounter.net.ClassCatalog
 import com.animalcounter.net.JetsonConnectionManager
@@ -124,10 +127,17 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _offsetCountingLine = MutableStateFlow(DEFAULT_OFFSET_COUNTING_LINE)
     /**
-     * Counting-line position (`offset_counting_line`, 0-100). Changing this
-     * affects the count; the UI warns the user accordingly.
+     * Counting-line offset (`offset_counting_line`, BL-84: SIGNED, centered at 0;
+     * practical UI range -50..50). Changing this affects the count; the UI warns
+     * the user accordingly.
      */
     val offsetCountingLine: StateFlow<Int> = _offsetCountingLine.asStateFlow()
+
+    private val _countingLineOrientation =
+        MutableStateFlow(DEFAULT_COUNTING_LINE_ORIENTATION)
+    /** (BL-84) Counting-line orientation: "vertical" | "horizontal". */
+    val countingLineOrientation: StateFlow<String> =
+        _countingLineOrientation.asStateFlow()
 
     /**
      * UI-facing state of an on-demand Jetson poweroff (`POST /api/power`).
@@ -242,6 +252,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             _boxTracking.value = repo.boxTracking.first()
             _centroidTracking.value = repo.centroidTracking.first()
             _offsetCountingLine.value = repo.offsetCountingLine.first()
+            _countingLineOrientation.value = repo.countingLineOrientation.first()
             loaded = true
             // Best-effort sync from the Jetson: if reachable, the on-device
             // runtime-settings.json overrides the local cache so the UI shows
@@ -349,6 +360,10 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
                     _offsetCountingLine.value = it
                     repo.setOffsetCountingLine(it)
                 }
+                s.countingLineOrientation?.let {
+                    _countingLineOrientation.value = it
+                    repo.setCountingLineOrientation(it)
+                }
             }
         }
     }
@@ -425,13 +440,25 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Counting-line slider change. [value] is clamped to 0-100 by the
-     * repository. Updates the local flow + cache, then schedules a
-     * debounced push.
+     * Counting-line offset slider change (BL-84: SIGNED, centered at 0).
+     * [value] is clamped to the practical UI range [OFFSET_SLIDER_MIN,
+     * OFFSET_SLIDER_MAX] by the repository. Updates the local flow + cache,
+     * then schedules a debounced push.
      */
     fun setOffsetCountingLine(value: Int) {
-        _offsetCountingLine.value = value.coerceIn(0, 100)
+        _offsetCountingLine.value = value.coerceIn(OFFSET_SLIDER_MIN, OFFSET_SLIDER_MAX)
         viewModelScope.launch { repo.setOffsetCountingLine(value) }
+        scheduleSettingsPush()
+    }
+
+    /**
+     * (BL-84) Counting-line orientation change ("vertical" | "horizontal").
+     * Updates the local flow + cache, then schedules a debounced push.
+     */
+    fun setCountingLineOrientation(value: String) {
+        val canonical = if (value == "horizontal") "horizontal" else "vertical"
+        _countingLineOrientation.value = canonical
+        viewModelScope.launch { repo.setCountingLineOrientation(canonical) }
         scheduleSettingsPush()
     }
 
@@ -451,6 +478,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
                 boxTracking = _boxTracking.value,
                 centroidTracking = _centroidTracking.value,
                 offsetCountingLine = _offsetCountingLine.value,
+                countingLineOrientation = _countingLineOrientation.value,
             )
             JetsonConnectionManager.putSettings(body)
         }

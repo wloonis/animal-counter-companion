@@ -35,7 +35,8 @@
 #   GET  /api/settings        -> runtime-settings.json ({} if absent)
 #   PUT  /api/settings        -> PATCH-like merge into runtime-settings.json
 #        (draw_tracking/box_tracking/centroid_tracking bool,
-#         offset_counting_line int 0-100,
+#         offset_counting_line int signed (-300..300, BL-83),
+#         counting_line_orientation str "vertical"|"horizontal" (BL-83),
 #         counting_class_ids list[int] subset of model-classes names — BL-82);
 #        validated, atomic write.
 #   GET  /api/classes         -> countable species catalog (BL-82):
@@ -76,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 SERVICE_NAME = "jetson-companion"
-SERVICE_VERSION = "6"
+SERVICE_VERSION = "7"
 HOST = "0.0.0.0"
 DEFAULT_PORT = 8090
 # Path on the Jetson HOST to the counting-history JSONL written by the
@@ -1014,7 +1015,11 @@ def _validate_settings_payload(payload):
       - draw_tracking     : bool (strict, not a truthy string)
       - box_tracking      : bool
       - centroid_tracking : bool
-      - offset_counting_line : int in [0, 100]
+      - offset_counting_line : signed int (loose sanity range
+        -300..300, BL-83; the authoritative bound is the line staying
+        inside the image with a 200px margin, clamped at use-time by
+        the counting app)
+      - counting_line_orientation : str "vertical" | "horizontal" (BL-83)
       - counting_class_ids   : list[int] (BL-82), each a valid class id
         (0..nc-1 of model-classes.json when available; else non-negative int)
 
@@ -1035,15 +1040,32 @@ def _validate_settings_payload(payload):
     if "offset_counting_line" in payload:
         val = payload["offset_counting_line"]
         # bool is a subclass of int — reject it explicitly so
-        # `true` is not silently accepted as 1.
+        # `true` is not silently accepted as 1. BL-83: the offset is now
+        # SIGNED (0 = centered; -N/+N = shift along the perpendicular axis).
+        # The -300..300 cap only garbage-filters absurd values; the
+        # authoritative bound (line inside the image, 200px margin) is
+        # clamped at use-time by the counting app, where the frame size is
+        # known. Existing 0..100 values stay valid (a sub-range).
         if isinstance(val, bool) or not isinstance(val, int):
             errors.append(
                 "offset_counting_line must be an integer, got {}".format(
                     type(val).__name__))
-        elif val < 0 or val > 100:
+        elif val < -300 or val > 300:
             errors.append(
-                "offset_counting_line must be in [0, 100], got {}".format(
+                "offset_counting_line must be in [-300, 300], got {}".format(
                     val))
+    if "counting_line_orientation" in payload:
+        val = payload["counting_line_orientation"]
+        # BL-83: string "vertical" | "horizontal". Reject bool (a bool is
+        # not a str) and non-str so the counting app never re-coerces.
+        if isinstance(val, bool) or not isinstance(val, str):
+            errors.append(
+                "counting_line_orientation must be a string, got {}".format(
+                    type(val).__name__))
+        elif val not in ("vertical", "horizontal"):
+            errors.append(
+                "counting_line_orientation must be 'vertical' or 'horizontal', "
+                "got {!r}".format(val))
     if "counting_class_ids" in payload:
         val = payload["counting_class_ids"]
         if not isinstance(val, list):
@@ -1391,6 +1413,7 @@ class CompanionHandler(BaseHTTPRequestHandler):
             if key in ("draw_tracking", "box_tracking",
                        "centroid_tracking",
                        "offset_counting_line",
+                       "counting_line_orientation",
                        "counting_class_ids"):
                 merged[key] = val
 

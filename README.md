@@ -244,12 +244,21 @@ can resume/partial-download large clips.
 
 `PUT /api/settings` writes `runtime-settings.json` (tracking toggles
 `draw_tracking` / `box_tracking` / `centroid_tracking` +
-`offset_counting_line`, and `counting_class_ids` — which species to count,
+`offset_counting_line` (BL-84: signed, 0 = centered) and `counting_line_orientation`
+(`"vertical"`\|`"horizontal"`, BL-84) — the counting-line orientation +
+décalage, and `counting_class_ids` — which species to count,
 BL-82). The write is a **PATCH-like merge** (only the keys
 present in the body are overwritten; unknown keys are ignored for
 forward-compat) and is **atomic** (temp file + `os.replace`, so the
 countingapp never reads a half-written file). The countingapp hot-reloads this
 file at each recording start — **no restart needed** to pick up new settings.
+
+The counting-line orientation + signed offset are surfaced in the Réglages
+tab (BL-84): a vertical/horizontal selector + a signed offset slider centered
+at 0. The counting core (BL-83, sister repo) reads
+`counting_line_orientation` + the signed `offset_counting_line` and applies them
+at the next recording (hot-reload); the authoritative bound (line inside the
+image with a 200px margin) is clamped at use-time by the countingapp.
 
 `GET /api/classes` (BL-82) exposes the countable species catalog
 (`model-classes.json`, published by the countingapp at startup — depends on

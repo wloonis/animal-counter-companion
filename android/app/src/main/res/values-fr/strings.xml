@@ -187,7 +187,10 @@
     <string name="draw_tracking_subtitle">Annoter boîtes et trails dans les enregistrements sauvegardés</string>
     <string name="box_tracking_title">Boîtes</string>
     <string name="centroid_tracking_title">Trails</string>
-    <string name="offset_slider_title">Position de la ligne</string>
+    <string name="offset_slider_title">Décalage (signé, centré sur 0)</string>
+    <string name="offset_orientation_label">Orientation</string>
+    <string name="offset_orientation_vertical">Verticale</string>
+    <string name="offset_orientation_horizontal">Horizontale</string>
     <string name="offset_warning">Modifie le comptage</string>
     <string name="settings_load_error">Échec du chargement des réglages depuis le Jetson</string>
     <string name="settings_save_error">Échec de l\'enregistrement des réglages vers le Jetson</string>

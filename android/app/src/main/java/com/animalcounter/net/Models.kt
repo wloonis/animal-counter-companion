@@ -367,6 +367,9 @@ data class JetsonSettings(
     val boxTracking: Boolean? = null,
     val centroidTracking: Boolean? = null,
     val offsetCountingLine: Int? = null,
+    /** (BL-84) Counting-line orientation: "vertical" | "horizontal". `null` =
+     *  do not modify (PATCH semantics). Hot-reloaded at the next recording. */
+    val countingLineOrientation: String? = null,
     /** (BL-82) Which class ids the countingapp counts; hot-reloaded at each
      *  recording start. `null` = do not modify (PATCH semantics). */
     val countingClassIds: List<Int>? = null,
@@ -402,6 +405,7 @@ internal fun JetsonSettings.toJson(): JSONObject = JSONObject().also { o ->
     boxTracking?.let { o.put("box_tracking", it) }
     centroidTracking?.let { o.put("centroid_tracking", it) }
     offsetCountingLine?.let { o.put("offset_counting_line", it) }
+    countingLineOrientation?.let { o.put("counting_line_orientation", it) }
     countingClassIds?.let { o.put("counting_class_ids", JSONArray(it)) }
 }
 
@@ -414,6 +418,7 @@ internal fun parseJetsonSettings(json: String): JetsonSettings {
         boxTracking = o.optBooleanOrNull("box_tracking"),
         centroidTracking = o.optBooleanOrNull("centroid_tracking"),
         offsetCountingLine = o.optIntOrNull("offset_counting_line"),
+        countingLineOrientation = o.optStringOrNull("counting_line_orientation"),
         countingClassIds = o.optIntArrayOrNull("counting_class_ids"),
     )
 }

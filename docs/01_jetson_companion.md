@@ -163,7 +163,7 @@ startup (BL-78) plus the current `counting_class_ids` selection.
 | Method | Path | Body | Purpose |
 |--------|------|------|---------|
 | `GET` | `/api/settings` | — | Current `runtime-settings.json` (empty `{}` when absent) |
-| `PUT` | `/api/settings` | PATCH JSON | Merge the given keys into `runtime-settings.json` (atomic write); echoes the merged object. Recognised keys: `draw_tracking`, `box_tracking`, `centroid_tracking` (bool), `offset_counting_line` (int 0–100), `counting_class_ids` (`int[]`, subset of the model classes — BL-82). Unknown keys ignored (forward-compat); 400 on a type/range violation. |
+| `PUT` | `/api/settings` | PATCH JSON | Merge the given keys into `runtime-settings.json` (atomic write); echoes the merged object. Recognised keys: `draw_tracking`, `box_tracking`, `centroid_tracking` (bool), `offset_counting_line` (signed int, loose `-300..300` — BL-84), `counting_line_orientation` (`"vertical"`\|`"horizontal"` — BL-84), `counting_class_ids` (`int[]`, subset of the model classes — BL-82). Unknown keys ignored (forward-compat); 400 on a type/range violation. |
 | `GET` | `/api/classes` | — | Countable species catalog + current selection (BL-82): `{model_version, nc, classes:[{id,name}], default_counting_class, counting_class_ids}`. `404` when the countingapp has not published `model-classes.json` yet (not started / write pending) — the app shows "catalog unavailable" and can retry. |
 
 `counting_class_ids` is hot-reloaded by the countingapp at the **next
@@ -363,7 +363,7 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 **Read the live runtime settings:**
 ```bash
 curl http://192.168.0.180:8090/api/settings
-# {"box_tracking":true,"centroid_tracking":false,"draw_tracking":true,"offset_counting_line":10,"counting_class_ids":[1]}
+# {"box_tracking":true,"centroid_tracking":false,"draw_tracking":true,"offset_counting_line":0,"counting_line_orientation":"vertical","counting_class_ids":[1]}
 ```
 
 **List the countable species + current selection:**
@@ -379,6 +379,23 @@ curl -X PUT http://192.168.0.180:8090/api/settings \
   -H 'Content-Type: application/json' \
   -d '{"counting_class_ids":[0,1]}'
 # 200 — echoes the merged runtime-settings.json
+```
+
+**Set the counting-line orientation + signed offset (BL-84, hot-reloaded at next recording):**
+```bash
+curl -X PUT http://192.168.0.180:8090/api/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"counting_line_orientation":"horizontal","offset_counting_line":-10}'
+# 200 — echoes the merged runtime-settings.json (offset signed, 0 = centered)
+```
+
+**Negative test — bad orientation (expect 400):**
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" \
+  -X PUT http://192.168.0.180:8090/api/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"counting_line_orientation":"diagonal"}'
+# 400
 ```
 
 **Negative test — out-of-range class id (expect 400):**

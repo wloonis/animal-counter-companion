@@ -187,7 +187,10 @@
     <string name="draw_tracking_subtitle">Annotate boxes and trails in saved recordings</string>
     <string name="box_tracking_title">Boxes</string>
     <string name="centroid_tracking_title">Trails</string>
-    <string name="offset_slider_title">Counting line position</string>
+    <string name="offset_slider_title">Offset (signed, centered at 0)</string>
+    <string name="offset_orientation_label">Orientation</string>
+    <string name="offset_orientation_vertical">Vertical</string>
+    <string name="offset_orientation_horizontal">Horizontal</string>
     <string name="offset_warning">Affects counting</string>
     <string name="settings_load_error">Couldn\'t load settings from Jetson</string>
     <string name="settings_save_error">Couldn\'t save settings to Jetson</string>
