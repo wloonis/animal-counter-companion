@@ -87,7 +87,7 @@ change.
   serialize `mask_zones` as a `JSONArray` of `{x,y,w,h}` objects + `draw_mask_zones`
   bool in `toJson` (omit when `null`); parse both defensively in
   `parseJetsonSettings`.
-- [ ] Task 5: EDIT `android/app/src/main/java/com/animalcounter/net/JetsonClient.kt`
+- [x] Task 5: EDIT `android/app/src/main/java/com/animalcounter/net/JetsonClient.kt`
   — add `getSnapshot(ip, network): ApiResult<ByteArray>` via a new private
   `getBytes` transport (mirrors `getJson` but returns `ByteArray`; 200 →
   `Success(bytes)`, non-2xx → `HttpError(code)`, throw → `NetworkError`);
