@@ -1022,6 +1022,14 @@ def _validate_settings_payload(payload):
       - counting_line_orientation : str "vertical" | "horizontal" (BL-83)
       - counting_class_ids   : list[int] (BL-82), each a valid class id
         (0..nc-1 of model-classes.json when available; else non-negative int)
+      - mask_zones           : list of axis-aligned normalized rects
+        {x,y,w,h} (each a non-bool number in [0..1], w>0, h>0,
+        x+w<=1, y+h<=1; BL-88). Strict reject-all: any invalid rect
+        rejects the whole PUT (no silent clamping), consistent with
+        the offset/orientation rejection in BL-84.
+      - draw_mask_zones      : bool (BL-88), overlays the saved zones
+        on the counting app's display; same strict-bool pattern as
+        draw_tracking.
 
     Returns (ok, errors). `ok` is True when every present key is
     valid; `errors` is a list of human-readable strings (empty when
@@ -1099,6 +1107,78 @@ def _validate_settings_payload(payload):
                     errors.append(
                         "counting_class_ids id {} is out of range "
                         "(valid 0..{})".format(cid, nc - 1))
+                    break
+    if "draw_mask_zones" in payload and not isinstance(
+            payload["draw_mask_zones"], bool):
+        errors.append(
+            "draw_mask_zones must be a boolean, got {}".format(
+                type(payload["draw_mask_zones"]).__name__))
+    if "mask_zones" in payload:
+        val = payload["mask_zones"]
+        if not isinstance(val, list):
+            errors.append(
+                "mask_zones must be a list of objects, got {}".format(
+                    type(val).__name__))
+        else:
+            # Each element must be a dict {x,y,w,h} of non-bool
+            # numbers in [0..1] with w>0, h>0, x+w<=1, y+h<=1.
+            # Strict reject-all: a single invalid rect rejects the
+            # whole PUT (no silent clamping), matching the IPC
+            # contract (BL-87/BL-88) so the companion never accepts
+            # a value the counting app would drop.
+            for i, rect in enumerate(val):
+                if not isinstance(rect, dict):
+                    errors.append(
+                        "mask_zones[{}] must be an object, got {}".format(
+                            i, type(rect).__name__))
+                    break
+                ok_rect = True
+                for field in ("x", "y", "w", "h"):
+                    fv = rect.get(field)
+                    if field not in rect:
+                        errors.append(
+                            "mask_zones[{}] missing field '{}'".format(
+                                i, field))
+                        ok_rect = False
+                        break
+                    # bool is a subclass of int — reject it so
+                    # `true` is not silently accepted as 1.
+                    if isinstance(fv, bool) or not isinstance(fv, (int, float)):
+                        errors.append(
+                            "mask_zones[{}].{} must be a number, got {}".format(
+                                i, field, type(fv).__name__))
+                        ok_rect = False
+                        break
+                    if not (0 <= fv <= 1):
+                        errors.append(
+                            "mask_zones[{}].{} must be in [0, 1], got {}".format(
+                                i, field, fv))
+                        ok_rect = False
+                        break
+                if not ok_rect:
+                    break
+                x, y, w, h = (
+                    float(rect["x"]), float(rect["y"]),
+                    float(rect["w"]), float(rect["h"]))
+                if w <= 0:
+                    errors.append(
+                        "mask_zones[{}].w must be > 0, got {}".format(
+                            i, w))
+                    break
+                if h <= 0:
+                    errors.append(
+                        "mask_zones[{}].h must be > 0, got {}".format(
+                            i, h))
+                    break
+                if x + w > 1:
+                    errors.append(
+                        "mask_zones[{}] x+w must be <= 1, got {}".format(
+                            i, x + w))
+                    break
+                if y + h > 1:
+                    errors.append(
+                        "mask_zones[{}] y+h must be <= 1, got {}".format(
+                            i, y + h))
                     break
     return (len(errors) == 0), errors
 
