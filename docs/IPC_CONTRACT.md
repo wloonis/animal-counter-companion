@@ -32,7 +32,7 @@ is a coordinated change across both repos.
 | Host (companion) | `/data/orin/files/` | created by the countingapp deploy |
 | Pod (countingapp) | `/files/` (hostPath mount of the above) | k3s manifest |
 
-Contains: `counting-history.jsonl`, `counting-*.mp4` clips, `dataset/`.
+Contains: `counting-history.jsonl`, `counting-*.mp4` clips, `dataset/`, `snapshot.jpg` (BL-88).
 
 ### `/conf` — config/control
 
@@ -93,6 +93,35 @@ The companion globs `counting-*.mp4` in the `/files` path and exposes them by
 `video_id`. A clip may be **temporarily absent** (compression in progress) or
 **cleaned up** (retention) → the companion returns `404`, and the Android app
 shows the "video no longer accessible" state.
+
+#### 3. `snapshot.jpg` — live preview snapshot (BL-88)
+
+The countingapp **writes** this periodically from `display_thread.py`
+(`DisplayThread._write_snapshot`): a JPEG (quality 85, default) of the **raw**
+counting-resolution frame, captured at the top of the display loop (before any
+tracking/overlay rendering — a clean canvas). It is written **atomically**
+(encode to bytes → write `snapshot.jpg.tmp` → `os.replace` to `snapshot.jpg`)
+approximately every `SNAPSHOT_INTERVAL_SECONDS` (default 5 s), gated by a
+wall-clock timestamp (not per-frame). Best-effort: any encode/write failure is
+logged at WARNING and swallowed (never breaks the display loop). Written
+regardless of `shared_state.status` (idle/counting/pause/auto) as long as frames
+flow, so the Android mask-zone editor gets a live preview even when idle.
+
+The companion **reads** it via `GET /api/snapshot` (BL-88, PR #19) and serves it
+to the Android app's visual mask-zone editor (`image/jpeg`). The companion reads
+the fully-renamed `snapshot.jpg` directly via `send_file` — it never observes the
+`.tmp` file (atomic rename guarantees this). The file **may be absent** (→ the
+companion returns `404`) before the first write (cold start) or if
+`SNAPSHOT_ENABLED=false` (boot param, default `true`). It is a single file
+overwritten in place (no retention needed — constant size, ~50–150 KB).
+
+| | |
+|---|---|
+| Writer | countingapp `display_thread.py` (atomic tmp+rename, ~5 s) |
+| Reader | companion `GET /api/snapshot` (BL-88, PR #19) |
+| Format | JPEG, raw counting-resolution frame, quality 85 (default) |
+| Absent | `404` before first write / `SNAPSHOT_ENABLED=false` |
+| Boot params | `SNAPSHOT_ENABLED`, `SNAPSHOT_INTERVAL_SECONDS`, `SNAPSHOT_PATH`, `SNAPSHOT_JPEG_QUALITY` (see `docs/04_configuration.md`) — boot params, NOT hot-reloaded via `/conf` |
 
 ### `/conf` (config/control)
 
