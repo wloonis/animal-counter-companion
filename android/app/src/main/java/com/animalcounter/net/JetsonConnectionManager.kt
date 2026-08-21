@@ -340,6 +340,28 @@ object JetsonConnectionManager {
         }
     }
 
+    /**
+     * (BL-88) On-demand `GET /api/snapshot` — the camera preview JPEG bytes
+     * served by the companion from `/files/snapshot.jpg`. Reuses the same
+     * IP resolution + WiFi-bound transport as [getSettings] (the binary
+     * [JetsonClient.getSnapshot] twin of the JSON getters). The caller
+     * decodes the bytes into a [android.graphics.Bitmap] off the main thread.
+     *
+     * @return [Result.success] with the raw JPEG [ByteArray] on HTTP 200, or
+     *   [Result.failure] (no reachable Jetson, non-2xx HTTP — including 404
+     *   when no snapshot has been written yet — or network error). Never
+     *   throws.
+     */
+    suspend fun getSnapshot(): Result<ByteArray> {
+        val ip = resolveActiveIp() ?: return Result.failure(IllegalStateException("Jetson introuvable"))
+        val network = activeWifiNetworkSafe()
+        return when (val res = JetsonClient.getSnapshot(ip = ip, network = network)) {
+            is ApiResult.Success -> Result.success(res.data)
+            is ApiResult.HttpError -> Result.failure(IllegalStateException("HTTP ${res.code}"))
+            is ApiResult.NetworkError -> Result.failure(IllegalStateException(res.message))
+        }
+    }
+
     /** (BL-82) On-demand `GET /api/classes` — the countable species catalog
      *  + the current `counting_class_ids` selection. Reuses the same IP
      *  resolution + WiFi-bound transport as [getSettings]. Returns
