@@ -150,6 +150,28 @@ See the [curl examples](#curl-examples) below and
 [`03_counting_history.md`](03_counting_history.md) for the JSONL line schema
 (A–G) and the store internals.
 
+### v3 — settings relay & countable species (BL-76, BL-82)
+
+The companion is bumped to **version `"6"`**. These endpoints bridge the
+Android app's Réglages tab to the countingapp via the hostPath `/conf`
+(CONFIG/CONTROL — split from `/files` by BL-79; companion aligned by BL-80).
+`GET/PUT /api/settings` read/write `runtime-settings.json` (hot-reloaded by
+the countingapp at each recording start); `GET /api/classes` exposes the
+read-only `model-classes.json` catalog published by the countingapp at
+startup (BL-78) plus the current `counting_class_ids` selection.
+
+| Method | Path | Body | Purpose |
+|--------|------|------|---------|
+| `GET` | `/api/settings` | — | Current `runtime-settings.json` (empty `{}` when absent) |
+| `PUT` | `/api/settings` | PATCH JSON | Merge the given keys into `runtime-settings.json` (atomic write); echoes the merged object. Recognised keys: `draw_tracking`, `box_tracking`, `centroid_tracking` (bool), `offset_counting_line` (int 0–100), `counting_class_ids` (`int[]`, subset of the model classes — BL-82). Unknown keys ignored (forward-compat); 400 on a type/range violation. |
+| `GET` | `/api/classes` | — | Countable species catalog + current selection (BL-82): `{model_version, nc, classes:[{id,name}], default_counting_class, counting_class_ids}`. `404` when the countingapp has not published `model-classes.json` yet (not started / write pending) — the app shows "catalog unavailable" and can retry. |
+
+`counting_class_ids` is hot-reloaded by the countingapp at the **next
+recording start** (no restart); invalid ids (out of `0..nc-1`) are dropped
+with a WARNING and the selection falls back to `[default_counting_class]`.
+See [`IPC_CONTRACT.md`](IPC_CONTRACT.md) for the authoritative
+`runtime-settings.json` / `model-classes.json` schemas.
+
 ## NTP note
 
 The companion always runs `timedatectl set-ntp false` **before** `set-time`.
@@ -334,6 +356,38 @@ curl 'http://192.168.0.180:8090/api/startups?limit=50'
 curl -s -o /dev/null -w "%{http_code}\n" \
   http://192.168.0.180:8090/api/sessions/does-not-exist
 # 404
+```
+
+**v3 — settings relay & countable species (BL-76, BL-82):**
+
+**Read the live runtime settings:**
+```bash
+curl http://192.168.0.180:8090/api/settings
+# {"box_tracking":true,"centroid_tracking":false,"draw_tracking":true,"offset_counting_line":10,"counting_class_ids":[1]}
+```
+
+**List the countable species + current selection:**
+```bash
+curl http://192.168.0.180:8090/api/classes
+# {"model_version":"v1","nc":2,"classes":[{"id":0,"name":"human"},{"id":1,"name":"pig"}],"default_counting_class":1,"counting_class_ids":[1]}
+# 404 when the counting app has not published model-classes.json yet.
+```
+
+**Select which species to count (PATCH, hot-reloaded at next recording):**
+```bash
+curl -X PUT http://192.168.0.180:8090/api/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"counting_class_ids":[0,1]}'
+# 200 — echoes the merged runtime-settings.json
+```
+
+**Negative test — out-of-range class id (expect 400):**
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" \
+  -X PUT http://192.168.0.180:8090/api/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"counting_class_ids":[0,1,9]}'
+# 400
 ```
 
 ## Security note

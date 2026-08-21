@@ -25,7 +25,7 @@
 # (or 1970) until this service sets it.
 #
 # Endpoints:
-#   GET  /api/identify        -> {"service":"jetson-companion","version":"5"}
+#   GET  /api/identify        -> {"service":"jetson-companion","version":"6"}
 #   GET  /api/count           -> live count/status/auto_mode (newest heartbeat)
 #   POST /api/time            -> timedatectl set-time/set-timezone
 #   POST /api/power           -> writes .arret_requested sentinel (BL-76);
@@ -35,7 +35,14 @@
 #   GET  /api/settings        -> runtime-settings.json ({} if absent)
 #   PUT  /api/settings        -> PATCH-like merge into runtime-settings.json
 #        (draw_tracking/box_tracking/centroid_tracking bool,
-#         offset_counting_line int 0-100); validated, atomic write.
+#         offset_counting_line int 0-100,
+#         counting_class_ids list[int] subset of model-classes names — BL-82);
+#        validated, atomic write.
+#   GET  /api/classes         -> countable species catalog (BL-82):
+#        {model_version, nc, classes:[{id,name}], default_counting_class,
+#         counting_class_ids} from model-classes.json + the current
+#        runtime-settings selection; 404 when the catalog is not yet
+#        published (countingapp not started / write pending).
 #   GET  /api/sessions        -> paginated session summaries (newest first)
 #        ?limit=50&offset=0
 #   GET  /api/summary         -> daily aggregates ?days=7
@@ -69,7 +76,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 SERVICE_NAME = "jetson-companion"
-SERVICE_VERSION = "5"
+SERVICE_VERSION = "6"
 HOST = "0.0.0.0"
 DEFAULT_PORT = 8090
 # Path on the Jetson HOST to the counting-history JSONL written by the
@@ -99,6 +106,12 @@ CONF_DIR = os.environ.get("CONF_DIR_HOST", DEFAULT_CONF_DIR)
 # live in CONF_DIR (/conf hostPath, BL-79/BL-80), NOT FILES_DIR.
 RUNTIME_SETTINGS_FILE = os.path.join(CONF_DIR, "runtime-settings.json")
 POWER_SENTINEL_FILE = os.path.join(CONF_DIR, ".arret_requested")
+# BL-82: read-only model class catalog published by the countingapp at
+# startup (state.py::publish_model_classes_json, BL-78). The companion reads
+# it to expose the countable species (class id + name) and the model default
+# to the Android app, and to validate counting_class_ids proposals. Same
+# /conf hostPath as the other control files.
+MODEL_CLASSES_FILE = os.path.join(CONF_DIR, "model-classes.json")
 
 
 def _ensure_conf_dir():
@@ -938,6 +951,62 @@ def _load_runtime_settings():
         return {}
 
 
+def _load_model_classes():
+    """Best-effort load of MODEL_CLASSES_FILE (BL-82, BL-78).
+
+    Returns the parsed dict, or None if the file is absent or unreadable.
+    Absence is the normal state before the countingapp has started /
+    published the catalog (the app shows "catalog unavailable" and can
+    retry). Logs a warning on an unexpected read failure (absence is
+    silent). Used by GET /api/classes and by counting_class_ids validation
+    in _validate_settings_payload."""
+    try:
+        with open(MODEL_CLASSES_FILE, "r") as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict):
+            sys.stderr.write(
+                "[model-classes] not a JSON object: {}\n".format(
+                    type(data).__name__))
+            return None
+        return data
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError) as exc:
+        sys.stderr.write(
+            "[model-classes] read failed: {}\n".format(exc))
+        return None
+
+
+def _resolve_counting_class_ids(settings, model_classes):
+    """Resolve the effective counting_class_ids (BL-82).
+
+    Mirrors the countingapp's state.py::resolve_counting_class_ids so the
+    companion reports the SAME selection the countingapp will apply at the
+    next recording start:
+      1. settings['counting_class_ids'] override — a list of ints, each a
+         valid index into model_classes['names']; invalid ids are dropped.
+      2. Fallback to [model_classes['default_counting_class']] when the
+         override is absent / empty / entirely invalid (or [1] when no
+         catalog / no valid default).
+    Returns a list of ints (never empty, never None). Never raises."""
+    names = model_classes.get("names", []) if model_classes else []
+    nc = len(names) if isinstance(names, list) else 0
+    default = model_classes.get("default_counting_class") if model_classes else None
+
+    raw = settings.get("counting_class_ids") if isinstance(settings, dict) else None
+    if isinstance(raw, list) and raw:
+        valid = []
+        for cid in raw:
+            if isinstance(cid, int) and not isinstance(cid, bool) and 0 <= cid < nc:
+                valid.append(cid)
+        if valid:
+            return valid
+    # Fallback to the model default (or legacy 1 when no valid default).
+    fallback = (default if isinstance(default, int) and not isinstance(default, bool)
+                and 0 <= default < nc else 1)
+    return [fallback]
+
+
 def _validate_settings_payload(payload):
     """Validate a settings dict for PUT /api/settings.
 
@@ -946,6 +1015,8 @@ def _validate_settings_payload(payload):
       - box_tracking      : bool
       - centroid_tracking : bool
       - offset_counting_line : int in [0, 100]
+      - counting_class_ids   : list[int] (BL-82), each a valid class id
+        (0..nc-1 of model-classes.json when available; else non-negative int)
 
     Returns (ok, errors). `ok` is True when every present key is
     valid; `errors` is a list of human-readable strings (empty when
@@ -973,6 +1044,40 @@ def _validate_settings_payload(payload):
             errors.append(
                 "offset_counting_line must be in [0, 100], got {}".format(
                     val))
+    if "counting_class_ids" in payload:
+        val = payload["counting_class_ids"]
+        if not isinstance(val, list):
+            errors.append(
+                "counting_class_ids must be a list of ints, got {}".format(
+                    type(val).__name__))
+        else:
+            # Validate each id: a non-bool int. Range-check against the
+            # model catalog when it is available so the companion rejects
+            # unknown ids early (the countingapp would drop them with a
+            # WARNING anyway); when the catalog is absent (countingapp not
+            # started yet) we only require non-negative ints and let the
+            # countingapp do the final range check at hot-reload time.
+            catalog = _load_model_classes()
+            nc = 0
+            if catalog is not None:
+                names = catalog.get("names", [])
+                nc = len(names) if isinstance(names, list) else 0
+            for cid in val:
+                if isinstance(cid, bool) or not isinstance(cid, int):
+                    errors.append(
+                        "counting_class_ids must contain only ints, "
+                        "got {}".format(type(cid).__name__))
+                    break
+                if cid < 0:
+                    errors.append(
+                        "counting_class_ids must be non-negative, "
+                        "got {}".format(cid))
+                    break
+                if nc > 0 and cid >= nc:
+                    errors.append(
+                        "counting_class_ids id {} is out of range "
+                        "(valid 0..{})".format(cid, nc - 1))
+                    break
     return (len(errors) == 0), errors
 
 
@@ -1064,6 +1169,43 @@ class CompanionHandler(BaseHTTPRequestHandler):
             # (normal at boot; the app falls back to os.getenv).
             payload = _load_runtime_settings()
             self._log("GET /api/settings -> 200")
+            _send_json(self, 200, payload)
+            return
+
+        if path == "/api/classes":
+            # BL-82: countable species catalog (read-only model-classes.json,
+            # published by the countingapp at startup) + the current
+            # counting_class_ids selection (from runtime-settings.json,
+            # resolved the same way the countingapp will at the next
+            # recording start). 404 when the catalog is not yet published
+            # (countingapp not started / write pending) so the app shows
+            # "catalog unavailable" and can retry.
+            catalog = _load_model_classes()
+            if catalog is None:
+                self._log("GET /api/classes -> 404 (no model-classes.json)")
+                _send_json(self, 404, {
+                    "error": "model-classes catalog not published yet",
+                })
+                return
+            names = catalog.get("names", [])
+            if not isinstance(names, list):
+                names = []
+            classes = [
+                {"id": i, "name": str(name)}
+                for i, name in enumerate(names)
+            ]
+            settings = _load_runtime_settings()
+            selected = _resolve_counting_class_ids(settings, catalog)
+            payload = {
+                "model_version": catalog.get("model_version"),
+                "nc": len(classes),
+                "classes": classes,
+                "default_counting_class": catalog.get(
+                    "default_counting_class"),
+                "counting_class_ids": selected,
+            }
+            self._log("GET /api/classes -> 200 (nc={}, selected={})".format(
+                len(classes), selected))
             _send_json(self, 200, payload)
             return
 
@@ -1248,7 +1390,8 @@ class CompanionHandler(BaseHTTPRequestHandler):
             # are ignored (forward-compat, matches the validator).
             if key in ("draw_tracking", "box_tracking",
                        "centroid_tracking",
-                       "offset_counting_line"):
+                       "offset_counting_line",
+                       "counting_class_ids"):
                 merged[key] = val
 
         # Atomic write: temp file in the same dir, then os.replace

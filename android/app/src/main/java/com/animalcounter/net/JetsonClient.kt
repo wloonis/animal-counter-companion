@@ -437,6 +437,17 @@ object JetsonClient {
     ): ApiResult<JetsonSettings> =
         getJson(ip, "/api/settings", network) { parseJetsonSettings(it) }
 
+    /** (BL-82) `GET /api/classes` → [ClassCatalog]: the countable species
+     *  published by the countingapp + the current `counting_class_ids`
+     *  selection. 404 (→ [ApiResult.HttpError](404)) when the countingapp has
+     *  not yet published `model-classes.json` (not started / write pending);
+     *  the caller surfaces "catalog unavailable" and can retry. */
+    suspend fun getClasses(
+        ip: String,
+        network: Network? = null,
+    ): ApiResult<ClassCatalog> =
+        getJson(ip, "/api/classes", network) { parseClassCatalog(it) }
+
     /**
      * `PUT /api/settings` — PATCH-like merge: only the non-`null` fields of
      * [body] are serialized (see [JetsonSettings.toJson]); the companion

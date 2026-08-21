@@ -140,6 +140,7 @@ fun SettingsScreen() {
     val centroidTracking by vm.centroidTracking.collectAsState()
     val offsetCountingLine by vm.offsetCountingLine.collectAsState()
     val companionVersion by vm.companionVersion.collectAsState()
+    val classCatalog by vm.classCatalog.collectAsState()
 
     // Confirmation dialog for the destructive Jetson poweroff. Hidden by
     // default; the "Arrêter le Jetson" button opens it; confirming dismisses
@@ -449,6 +450,95 @@ fun SettingsScreen() {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
+            }
+
+            // ---- 5b. Espèces comptées (BL-82) ----
+            Section(title = stringResource(R.string.section_counted_species)) {
+                when (val state = classCatalog) {
+                    is SettingsViewModel.ClassCatalogState.Loading -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Text(
+                                text = stringResource(R.string.species_loading),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    is SettingsViewModel.ClassCatalogState.Unavailable -> {
+                        Text(
+                            text = stringResource(R.string.species_unavailable),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = { vm.refreshClasses() }) {
+                            Text(stringResource(R.string.species_retry))
+                        }
+                    }
+                    is SettingsViewModel.ClassCatalogState.Error -> {
+                        Text(
+                            text = stringResource(R.string.species_error),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = { vm.refreshClasses() }) {
+                            Text(stringResource(R.string.species_retry))
+                        }
+                    }
+                    is SettingsViewModel.ClassCatalogState.Idle -> {
+                        Text(
+                            text = stringResource(R.string.species_error),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    is SettingsViewModel.ClassCatalogState.Loaded -> {
+                        val catalog = state.catalog
+                        if (catalog.classes.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.species_empty),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            catalog.classes.forEach { entry ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = entry.name,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                        )
+                                        Text(
+                                            text = "id ${entry.id}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Switch(
+                                        checked = entry.id in catalog.countingClassIds,
+                                        onCheckedChange = { vm.toggleClass(entry.id) },
+                                    )
+                                }
+                            }
+                            Text(
+                                text = stringResource(R.string.species_hot_reload_note),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
             }
 
             // ---- 6. À propos (BL-77) ----

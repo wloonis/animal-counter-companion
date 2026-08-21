@@ -367,10 +367,30 @@ data class JetsonSettings(
     val boxTracking: Boolean? = null,
     val centroidTracking: Boolean? = null,
     val offsetCountingLine: Int? = null,
+    /** (BL-82) Which class ids the countingapp counts; hot-reloaded at each
+     *  recording start. `null` = do not modify (PATCH semantics). */
+    val countingClassIds: List<Int>? = null,
 )
 
 /** `POST /api/power` response → `{"status":"poweroff_requested"}`. */
 data class PoweroffResponse(val status: String)
+
+/** (BL-82) One countable species in the deployed model's class catalog. */
+data class ClassEntry(val id: Int, val name: String)
+
+/** (BL-82) `GET /api/classes` — the countable species catalog published by the
+ *  countingapp (`model-classes.json`) plus the current `counting_class_ids`
+ *  selection (resolved the same way the countingapp will at the next recording
+ *  start). `classes` is empty only transiently before the countingapp publishes
+ *  the catalog; the endpoint itself returns 404 in that case (mapped to
+ *  [ApiResult.HttpError](404) by the getter). */
+data class ClassCatalog(
+    val modelVersion: String?,
+    val nc: Int,
+    val classes: List<ClassEntry>,
+    val defaultCountingClass: Int?,
+    val countingClassIds: List<Int>,
+)
 
 /**
  * Serialize [JetsonSettings] to a JSON object, omitting `null` fields so a
@@ -382,6 +402,7 @@ internal fun JetsonSettings.toJson(): JSONObject = JSONObject().also { o ->
     boxTracking?.let { o.put("box_tracking", it) }
     centroidTracking?.let { o.put("centroid_tracking", it) }
     offsetCountingLine?.let { o.put("offset_counting_line", it) }
+    countingClassIds?.let { o.put("counting_class_ids", JSONArray(it)) }
 }
 
 /** Parse `GET /api/settings` (or the merged echo of `PUT /api/settings`) into
@@ -393,6 +414,7 @@ internal fun parseJetsonSettings(json: String): JetsonSettings {
         boxTracking = o.optBooleanOrNull("box_tracking"),
         centroidTracking = o.optBooleanOrNull("centroid_tracking"),
         offsetCountingLine = o.optIntOrNull("offset_counting_line"),
+        countingClassIds = o.optIntArrayOrNull("counting_class_ids"),
     )
 }
 
@@ -400,6 +422,28 @@ internal fun parseJetsonSettings(json: String): JetsonSettings {
  *  status if the key is absent (the endpoint always echoes `status`). */
 internal fun parsePoweroffResponse(json: String): PoweroffResponse =
     PoweroffResponse(JSONObject(json).optStringOrNull("status") ?: "")
+
+/** (BL-82) Parse `GET /api/classes` into [ClassCatalog]. Defensive: a missing
+ *  `classes` array degrades to an empty list; a missing `counting_class_ids`
+ *  degrades to an empty selection (the caller should then show the model
+ *  default). Never throws. */
+internal fun parseClassCatalog(json: String): ClassCatalog {
+    val o = JSONObject(json)
+    val arr = o.optJSONArray("classes") ?: JSONArray()
+    val classes = ArrayList<ClassEntry>(arr.length())
+    for (i in 0 until arr.length()) {
+        if (arr.isNull(i)) continue
+        val c = arr.optJSONObject(i) ?: continue
+        classes.add(ClassEntry(id = c.optInt("id"), name = c.optStringOrNull("name") ?: c.optInt("id").toString()))
+    }
+    return ClassCatalog(
+        modelVersion = o.optStringOrNull("model_version"),
+        nc = o.optInt("nc", classes.size),
+        classes = classes,
+        defaultCountingClass = o.optIntOrNull("default_counting_class"),
+        countingClassIds = o.optIntArrayOrNull("counting_class_ids") ?: emptyList(),
+    )
+}
 
 // ---------------------------------------------------------------------------
 // Defensive opt-X helpers (never throw on missing/null keys)
@@ -416,6 +460,21 @@ internal fun JSONObject.optDoubleOrNull(key: String): Double? =
 
 internal fun JSONObject.optBooleanOrNull(key: String): Boolean? =
     if (has(key) && !isNull(key)) optBoolean(key) else null
+
+/** (BL-82) Read a `counting_class_ids`-style `int[]` key; null when absent or
+ *  not an array. Booleans inside are dropped (bool is an int subclass in JSON
+ *  clients, but the companion rejects them server-side). */
+internal fun JSONObject.optIntArrayOrNull(key: String): List<Int>? {
+    if (!has(key) || isNull(key)) return null
+    val arr = optJSONArray(key) ?: return null
+    val out = ArrayList<Int>(arr.length())
+    for (i in 0 until arr.length()) {
+        if (arr.isNull(i)) continue
+        val v = arr.optInt(i, Int.MIN_VALUE)
+        if (v != Int.MIN_VALUE && !arr.optBoolean(i, false)) out.add(v)
+    }
+    return out
+}
 
 /** `optString` that maps missing/`""`/`null` to `null` rather than `""`. */
 internal fun JSONObject.optStringOrNull(key: String): String? {

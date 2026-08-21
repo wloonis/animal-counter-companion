@@ -226,6 +226,7 @@ service `version`; the Android app checks it and warns on mismatch. Bump the
 | `GET` | `/api/video/<id>` | Range-streamed compressed `counting-<id>-*.mp4` (HTTP 200/206/416) |
 | `GET` | `/api/settings` | Current `runtime-settings.json` (`{}` if absent) |
 | `PUT` | `/api/settings` | PATCH-like merge into `runtime-settings.json` (atomic write) |
+| `GET` | `/api/classes` | Countable species catalog + current `counting_class_ids` selection (BL-82) |
 | `POST` | `/api/power` | Writes the `.arret_requested` sentinel → countingapp stops + powers off |
 
 ### Read-only history & video
@@ -243,11 +244,19 @@ can resume/partial-download large clips.
 
 `PUT /api/settings` writes `runtime-settings.json` (tracking toggles
 `draw_tracking` / `box_tracking` / `centroid_tracking` +
-`offset_counting_line`). The write is a **PATCH-like merge** (only the keys
+`offset_counting_line`, and `counting_class_ids` — which species to count,
+BL-82). The write is a **PATCH-like merge** (only the keys
 present in the body are overwritten; unknown keys are ignored for
 forward-compat) and is **atomic** (temp file + `os.replace`, so the
 countingapp never reads a half-written file). The countingapp hot-reloads this
 file at each recording start — **no restart needed** to pick up new settings.
+
+`GET /api/classes` (BL-82) exposes the countable species catalog
+(`model-classes.json`, published by the countingapp at startup — depends on
+the model deployed on **this** Jetson) as `classes:[{id,name}]` plus the
+current `counting_class_ids` selection, so the app's Réglages tab can list
+the species, show which are selected, and toggle them at hot-reload. `404`
+when the catalog is not yet published.
 
 ### Power-off sentinel
 
