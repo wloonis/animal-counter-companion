@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 SERVICE_NAME = "jetson-companion"
-SERVICE_VERSION = "7"
+SERVICE_VERSION = "8"
 HOST = "0.0.0.0"
 DEFAULT_PORT = 8090
 # Path on the Jetson HOST to the counting-history JSONL written by the
@@ -1494,7 +1494,9 @@ class CompanionHandler(BaseHTTPRequestHandler):
                        "centroid_tracking",
                        "offset_counting_line",
                        "counting_line_orientation",
-                       "counting_class_ids"):
+                       "counting_class_ids",
+                       "mask_zones",
+                       "draw_mask_zones"):
                 merged[key] = val
 
         # Atomic write: temp file in the same dir, then os.replace
