@@ -1,14 +1,19 @@
-# Android-app development workflow (BL-65+).
+# Companion-repo development workflow (BL-65+).
 #
 # Flow: Archon asks clarifying questions → Pi writes PLAN.md and submits via
 # plannotator → human reviews/approves over HTTP on 127.0.0.1:19432 → Pi
-# implements task-by-task with `./gradlew assembleDebug` validation + commits
-# → finalize (push + PR draft + APK location + install instructions).
+# implements task-by-task with DUAL validation + commits → finalize (push +
+# PR draft + APK location/install steps if android/ changed).
 #
-# This workflow is ANDROID-specific. Validation = `./gradlew assembleDebug`
-# (build APK) inside the `android/` folder — NOT python3 -m py_compile and NOT
-# bun run type-check. There is NO Jetson/video validation (the app does not
-# touch countingapp) — the workflow goes straight from implement to finalize.
+# This workflow handles the companion repo's DUAL nature:
+#   - `android/`        — Kotlin + Jetpack Compose + Material 3 phone app.
+#                         Validation = `./gradlew assembleDebug` (build APK).
+#   - `companion/*.py`  — Python HTTP bridge (jetson-companion.py) running on
+#                         the Jetson. Validation = `python3 -m py_compile`.
+# A feature may touch either or both; each task is validated by the matching
+# toolchain based on the file(s) it touches. There is NO Jetson/video counting
+# validation (this repo does not touch countingapp) — the workflow goes
+# straight from implement to finalize.
 #
 # Relay protocol (detached runs): same as archon-jetson-dev — beacons written to
 # `.archon-relay/` in the worktree (CLARIFY.md, PLANNOTATOR.md).
@@ -17,28 +22,36 @@
 #   - JDK 17 Temurin at ~/jdk-17 (JAVA_HOME)
 #   - Android SDK at ~/Android/Sdk (ANDROID_HOME): platform-tools,
 #     platforms;android-35, build-tools;34.0.0
+#   - python3 (for companion/*.py syntax check)
 #   - pi install npm:@plannotator/pi-extension
 #   - .archon/config.yaml: extensionFlags.plan: true + PLANNOTATOR_REMOTE: "1"
 # The implement node MUST export JAVA_HOME + ANDROID_HOME before gradle.
 
 name: archon-android-dev
 description: |
-  Use when: You want autonomous development of the Android companion app
-  (BL-65 time-sync push, BL-66 count display, BL-67 video browser, ...).
-  The app lives in the repo `android/` folder (Kotlin + Jetpack Compose +
-  Material 3), targets the Jetson companion service over the Jetson hotspot.
-  Triggers: "android dev", "phone app", "companion android", "BL-65", "BL-66",
-            "BL-67".
-  NOT for: Jetson/countingapp changes (use archon-jetson-dev).
+  Use when: You want autonomous development of a feature in the companion repo
+  (Android phone app in `android/` and/or the Python Jetson companion bridge in
+  `companion/jetson-companion.py`). Covers BL-65 time-sync, BL-66 count
+  display, BL-67 video browser, BL-82/84 counting-line/classes settings,
+  BL-88 mask zones, and future companion features.
+  The Android app is Kotlin + Jetpack Compose + Material 3, targets the Jetson
+  companion service over the Jetson hotspot. The Python companion is the HTTP
+  bridge the app talks to (reads/writes /conf, /files).
+  Triggers: "android dev", "phone app", "companion android", "companion python",
+            "BL-65", "BL-66", "BL-67", "BL-82", "BL-84", "BL-88".
+  NOT for: countingapp / Jetson counting-pipeline changes (use archon-jetson-dev
+  in the animal-counter repo).
 
-  Four phases:
+  Five phases:
   1. CLARIFY: Pi asks 2-3 targeted questions, converges on intent.
   2. PLAN: Pi writes PLAN.md and submits via plannotator HTTP UI.
   3. VERIFY-PLAN: Bash sanity check that PLAN.md exists with tasks.
-  4. IMPLEMENT: Pi reads approved PLAN.md, executes task-by-task with
-     `cd android && ./gradlew assembleDebug` validation + commits. Emits
-     IMPL_DONE when the APK builds and all tasks are checked.
-  5. FINALIZE: Push branch + create draft PR + report APK path + install steps.
+  4. IMPLEMENT: Pi reads approved PLAN.md, executes task-by-task with DUAL
+     validation (`./gradlew assembleDebug` for `android/` tasks,
+     `python3 -m py_compile` for `companion/*.py` tasks) + commits. Emits
+     IMPL_DONE when all tasks are checked + the relevant build(s) pass.
+  5. FINALIZE: Push branch + create draft PR + (if android/ changed) report APK
+     path + install steps.
 
 provider: pi
 model: ollama/glm-5.2
@@ -52,7 +65,7 @@ nodes:
   - id: clarify
     loop:
       prompt: |
-        # Android Dev — Clarify Phase
+        # Companion Dev — Clarify Phase
 
         You are about to hand off to a Pi session that will write a plan and
         submit it through plannotator's HTTP approval UI. Before that handoff,
@@ -63,48 +76,43 @@ nodes:
 
         ## Project context (ALREADY DECIDED — do NOT re-ask these)
 
-        - **Mono-repo**: the app lives in `android/` (Kotlin + Jetpack Compose +
-          Material 3). A gradle project skeleton may already exist; check with
-          `ls android/ 2>/dev/null`.
-        - **Target**: Samsung Galaxy S20 (Android 13 = API 33 max).
-          minSdk=33, compileSdk=35, targetSdk=35, AGP 8.7+, Kotlin 2.0+.
+        - **Mono-repo with TWO runtime targets**:
+          - `android/` — Kotlin + Jetpack Compose + Material 3 phone app. A
+            gradle project skeleton may already exist; check with
+            `ls android/ 2>/dev/null`. Target: Samsung Galaxy S20
+            (Android 13 = API 33 max). minSdk=33, compileSdk=35, targetSdk=35,
+            AGP 8.7+, Kotlin 2.0+.
+          - `companion/jetson-companion.py` — Python HTTP bridge that runs on
+            the Jetson (systemd service `jetson-companion`, port 8090). It
+            reads/writes `/conf/runtime-settings.json` + `/files/` and exposes
+            the REST API the Android app calls.
+          - `docs/` — `docs/01_jetson_companion.md` (companion HTTP API) +
+            `docs/IPC_CONTRACT.md` (shared file contract with the countingapp,
+            kept IDENTICAL to the animal-counter repo's copy).
         - **Build env already installed on this machine**: JDK 17 Temurin at
           `~/jdk-17` (JAVA_HOME) and Android SDK at `~/Android/Sdk`
           (ANDROID_HOME: platform-tools, platforms;android-35,
-          build-tools;34.0.0). Validation = `cd android && ./gradlew
-          assembleDebug` (build APK). Do NOT run python3 -m py_compile.
-        - **UI**: a "hub" MainActivity with a bottom navigation that is
-          EXTENSIBLE — later features (BL-66 live count display, BL-67 video
-          browser/download) will add tabs. For THIS feature, implement the
-          "Time sync" screen with a polished Material 3 design. The hub shell +
-          nav scaffold must be in place even if other tabs are placeholders.
-        - **Foreground service** with a persistent notification (more robust
-          than background NetworkCallback alone on Android 14+).
-        - **Background push**: `ConnectivityManager.registerNetworkCallback(
-          TRANSPORT_WIFI, PendingIntent)` fires when the phone joins the Jetson
-          hotspot — pushes the time WITHOUT the app being open. Re-register on
-          `RECEIVE_BOOT_COMPLETED`.
-        - **Permissions**: INTERNET, ACCESS_NETWORK_STATE, RECEIVE_BOOT_COMPLETED,
-          FOREGROUND_SERVICE (+ FOREGROUND_SERVICE_DATA_SYNC for targetSdk 35).
-          NO location permission (isolated hotspot → trust on 200).
-        - **Endpoint**: POST `http://<jetson_ip>:8090/api/time` with
-          `{"time":"<ISO8601>","tz":"<zone>"}` to the Jetson companion (BL-64,
-          already deployed). The companion responds `{"status":"ok",...}` or
-          `400`/`500`. Default Jetson IP = `192.168.100.1` (the hotspot IP),
-          USER-CONFIGURABLE in the UI.
-        - **HTTP**: HttpURLConnection (stdlib, no extra dep) OR OkHttp — your
-          call, keep it minimal.
+          build-tools;34.0.0) for `android/`; `python3` for `companion/*.py`.
+          Validation is DUAL: `cd android && ./gradlew assembleDebug` (build
+          APK) for Android tasks, `python3 -m py_compile companion/*.py` for
+          Python companion tasks — pick the matching toolchain per task based
+          on the file(s) it touches.
+        - **A feature may touch EITHER or BOTH targets.** Read the user's
+          request to determine which. Do not assume Android-only.
+        - **No Jetson/counting validation here.** This repo does not touch the
+          counting pipeline; the companion is deployed to the Jetson manually
+          after merge (not by this workflow).
 
         ## If this is the FIRST iteration (no reply yet)
 
-        1. **Do light recon** — `ls android/ 2>/dev/null`, check if a gradle
-           project exists, read any existing `android/app/build.gradle*`,
-           `AndroidManifest.xml`. Also check the companion contract in
-           `docs/01_jetson_companion.md` for the exact /api/time request shape.
+        1. **Do light recon** — `ls android/ 2>/dev/null` (gradle project?),
+           `ls companion/ 2>/dev/null`, read `docs/01_jetson_companion.md`
+           (companion HTTP API), `docs/IPC_CONTRACT.md` (shared contract), and
+           `AGENTS.md`/`README.md` for conventions. Identify which target(s)
+           the user's request touches (android/, companion/, docs/).
         2. **Check whether every decision is already resolved.** The
            "ALREADY DECIDED" list above + the user's request may already close
-           ALL open taste-calls (tab names/order, app name, icon, theme, IP
-           persistence, UI extras). If so, do NOT pause to re-ask.
+           ALL open taste-calls. If so, do NOT pause to re-ask.
 
            **Convergence shortcut**: if the user's request ALREADY resolves
            every open decision, jump straight to the "Resolved intent for
@@ -116,11 +124,9 @@ nodes:
 
         3. **Otherwise** (genuine open decisions remain) — **Output your
            understanding + 2-3 questions**, max. Focus on what is NOT yet
-           decided: UI details (which tabs/screens to scaffold for BL-66/67
-           placeholders, color theme, app name/icon), the Jetson IP default +
-           persistence (DataStore/SharedPreferences), how much of the hub shell
-           to build now vs stub, and whether to add a "Push now" test button +
-           a status/log view.
+           decided: UI details (screens, theme, navigation), companion API
+           shape/validation rules, IPC contract additions, how much to build
+           now vs stub, error/edge-case handling.
 
            Ask about DECISIONS, not things you can look up.
 
@@ -193,7 +199,7 @@ nodes:
     model: ollama/glm-5.2
     idle_timeout: 3600000
     prompt: |
-      # Android Dev — Plan Phase (PLANNING ONLY)
+      # Companion Dev — Plan Phase (PLANNING ONLY)
 
       ╔══════════════════════════════════════════════════════════════╗
       ║  ⚠  YOU ARE A PLANNER. YOU ARE NOT AN IMPLEMENTER.           ║
@@ -229,17 +235,20 @@ nodes:
 
       ## Tasks
       - [ ] Task 1: {ACTION} `android/...` — {what and why}
-      - [ ] Task 2: ...
+      - [ ] Task 2: {ACTION} `companion/jetson-companion.py` — {what and why}
+      - [ ] Task 3: ...
       ## Validation
-      - `cd android && ./gradlew assembleDebug` builds the APK
+      - `cd android && ./gradlew assembleDebug` builds the APK (for android/ tasks)
+      - `python3 -m py_compile companion/jetson-companion.py` (for companion/ tasks)
       ## Risks
       - ...
       ```
 
-      Every task must be atomic, name a specific file under `android/`, and
-      describe a verifiable action. You may READ CLAUDE.md/AGENTS.md/README.md
-      and `docs/01_jetson_companion.md` (companion /api/time contract), but do
-      NOT read or edit source files.
+      Every task must be atomic, name a specific file under `android/` OR
+      `companion/` (or `docs/`), and describe a verifiable action. You may READ
+      CLAUDE.md/AGENTS.md/README.md, `docs/01_jetson_companion.md` (companion
+      HTTP API), and `docs/IPC_CONTRACT.md` (shared contract with countingapp),
+      but do NOT read or edit source files.
 
       ## Step 2: Submit for review
       Call `plannotator_submit_plan`. Wait for the reviewer's decision.
@@ -262,7 +271,7 @@ nodes:
       ## Rules (non-negotiable)
       - PLAN.md and `.archon-relay/PLANNOTATOR.md` are the ONLY files you may
         create/edit. You may READ PLAN.md, CLAUDE.md, AGENTS.md, README.md,
-        docs/01_jetson_companion.md.
+        docs/01_jetson_companion.md, docs/IPC_CONTRACT.md.
       - Do NOT call bash/agent_browser/cron_create or run gradle/build.
       - **Plan approval is a HUMAN gate** — only the user approves/denies via
         the plannotator browser. Never auto-approve.
@@ -295,7 +304,8 @@ nodes:
 
   # ═══════════════════════════════════════════════════════════════
   # PHASE 3: IMPLEMENT — Task-by-task loop against PLAN.md
-  # Validation = cd android && ./gradlew assembleDebug (build APK)
+  # Validation = DUAL: gradle assembleDebug for android/ tasks,
+  #                     python3 -m py_compile for companion/*.py tasks.
   # ═══════════════════════════════════════════════════════════════
 
   - id: implement
@@ -304,31 +314,30 @@ nodes:
     model: large
     loop:
       prompt: |
-        # Android Dev — Implementation Agent
+        # Companion Dev — Implementation Agent
 
         You are an autonomous coding agent in a FRESH session. Read the approved
         plan from disk, implement ONE task, validate, commit, exit. The loop
         engine starts a fresh session for the next task.
 
-        **IMPORTANT — this is an Android (Kotlin + Jetpack Compose) project in
-        `android/`.** Do NOT run `python3 -m py_compile`, `bun run type-check`,
-        or any Jetson/validate script — they are irrelevant here. The ONLY
-        validation is a successful gradle build:
-
-        ```bash
-        export JAVA_HOME="$HOME/jdk-17"
-        export ANDROID_HOME="$HOME/Android/Sdk"
-        export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
-        cd android && ./gradlew assembleDebug
-        ```
+        **This repo has TWO runtime targets** — pick the validation toolchain
+        based on the file(s) the task touches:
+        - `android/` (Kotlin + Jetpack Compose + Material 3) → validate with
+          `cd android && ./gradlew assembleDebug` (build APK).
+        - `companion/*.py` (Python HTTP bridge) → validate with
+          `python3 -m py_compile companion/jetson-companion.py` (syntax check).
+        - `docs/` only → no build validation (just commit).
+        A task may touch both (e.g. a companion API endpoint + the Android
+        screen that calls it) → run BOTH validations.
 
         The build env (JDK 17 + Android SDK) is already installed on this
         machine — do NOT reinstall it. The Gradle wrapper (`gradlew`) downloads
         Gradle + AGP + Kotlin on the first run (needs internet — this machine is
         on WiFi internet).
 
-        **Golden Rule**: if `./gradlew assembleDebug` fails, fix it before
-        committing. Never commit code that does not build.
+        **Golden Rule**: never commit code that does not pass its matching
+        validation. If `./gradlew assembleDebug` fails (android/ task) or
+        `python3 -m py_compile` fails (companion/ task), fix before committing.
 
         ---
 
@@ -336,10 +345,11 @@ nodes:
         1. Read `PLAN.md` (source of truth).
         2. `cat .archon-piv-progress.txt 2>/dev/null || true`.
         3. `git log --oneline -10` and `git status`.
-        4. If the `android/` gradle project does not exist yet, your FIRST task
-           is to scaffold it (settings.gradle.kts, build.gradle.kts app +
-           project, gradle wrapper, AndroidManifest, MainActivity Compose). Use
-           the latest stable AGP 8.7.x + Kotlin 2.0.x + Compose BOM.
+        4. If the `android/` gradle project does not exist yet AND a task
+           touches `android/`, your FIRST such task is to scaffold it
+           (settings.gradle.kts, build.gradle.kts app + project, gradle wrapper,
+           AndroidManifest, MainActivity Compose). Use the latest stable
+           AGP 8.7.x + Kotlin 2.0.x + Compose BOM.
 
         ## Phase 1: Select Next Task
         Tasks are `- [ ]` checkboxes in PLAN.md. Cross-reference progress +
@@ -349,25 +359,37 @@ nodes:
         -- Task Selected --
         Task: {N} — {title}
         File: {path}
+        Validation: {gradle | py_compile | none}
         ```
 
         ## Phase 2: Implement
-        Read the file(s) the task touches. Make changes following Kotlin +
-        Compose conventions (Material 3). Keep the code clean and idiomatic.
+        Read the file(s) the task touches. Make changes following the matching
+        conventions (Kotlin + Compose Material 3 for `android/`; clean idiomatic
+        Python for `companion/`). Keep the code clean and idiomatic.
 
         ## Phase 3: Validate + Commit
+        Run the matching validation for the file(s) you edited:
+
+        **If you edited `android/`** (Kotlin/Compose):
         ```bash
         export JAVA_HOME="$HOME/jdk-17"
         export ANDROID_HOME="$HOME/Android/Sdk"
         export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
         cd android && ./gradlew assembleDebug 2>&1 | tail -40
         ```
-        If the build fails, fix (up to 3 attempts). If you can't fix, note it in
-        `.archon-piv-progress.txt` and exit WITHOUT committing.
 
-        If the build passes, stage only the files you edited:
+        **If you edited `companion/*.py`** (Python):
         ```bash
-        git add android/path/to/file1 android/path/to/file2 ...
+        python3 -m py_compile companion/jetson-companion.py && echo "py_compile OK"
+        ```
+
+        **If you edited both**, run BOTH. If a validation fails, fix (up to 3
+        attempts). If you can't fix, note it in `.archon-piv-progress.txt` and
+        exit WITHOUT committing.
+
+        If validation passes, stage only the files you edited:
+        ```bash
+        git add android/path/to/file1 companion/path/to/file2 ...
         git status --porcelain
         git diff --cached --stat
         git commit -m "$(cat <<'EOF'
@@ -387,8 +409,11 @@ nodes:
 
         ## Phase 4: Complete
         If every task in PLAN.md is now checked:
-        1. Final build: `cd android && ./gradlew assembleDebug` (must succeed).
-        2. Locate the APK: `ls -la android/app/build/outputs/apk/debug/*.apk`.
+        1. Final validation: re-run the validation(s) for every target touched
+           (gradle if any android/ task, py_compile if any companion/ task).
+           All must pass.
+        2. If `android/` was touched, locate the APK:
+           `ls -la android/app/build/outputs/apk/debug/*.apk`.
         3. Signal: `<promise>IMPL_DONE</promise>`
         Otherwise, end normally — the loop starts a fresh iteration.
 
@@ -398,6 +423,7 @@ nodes:
 
   # ═══════════════════════════════════════════════════════════════
   # PHASE 4: FINALIZE — Push, create PR, report APK + install steps
+  # (if android/ changed)
   # ═══════════════════════════════════════════════════════════════
 
   - id: finalize
@@ -405,23 +431,29 @@ nodes:
     depends_on: [implement]
     context: fresh
     prompt: |
-      # Android Dev — Finalize
+      # Companion Dev — Finalize
 
-      The Android app has been implemented and the APK builds. Push changes,
-      create a draft PR, and report the APK path + install instructions.
+      The feature has been implemented (Android app and/or Python companion).
+      Push changes, create a draft PR, and (if `android/` changed) report the
+      APK path + install instructions.
 
       ## Step 1: Push
       ```bash
       git push -u origin HEAD 2>&1 || echo "WARNING: Push failed — verify auth."
       ```
 
-      ## Step 2: Confirm the APK
+      ## Step 2: Final validation
+      If `android/` was touched by any task:
       ```bash
       export JAVA_HOME="$HOME/jdk-17"
       export ANDROID_HOME="$HOME/Android/Sdk"
       export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
       cd android && ./gradlew assembleDebug 2>&1 | tail -20
       ls -la app/build/outputs/apk/debug/*.apk
+      ```
+      If `companion/*.py` was touched by any task:
+      ```bash
+      python3 -m py_compile companion/jetson-companion.py && echo "py_compile OK"
       ```
 
       ## Step 3: Summary
@@ -437,20 +469,25 @@ nodes:
       ```
       If no PR exists, `gh pr create --draft --base $BASE_BRANCH`:
       - Title from the plan
-      - Body: implementation summary + the APK path + install instructions
-        (ADB via USB + sideload fallback — see below)
+      - Body: implementation summary. If `android/` changed, include the APK
+        path + install instructions (ADB via USB + sideload fallback — see
+        below). If `companion/` changed, note the companion must be deployed to
+        the Jetson (manual rsync + systemd restart) after merge.
       - Include `Closes #<issue>` if a GitHub issue exists for this feature.
 
       ## Step 5: Output Summary
       ```
       ===============================================================
-      ANDROID DEV — COMPLETE
+      COMPANION DEV — COMPLETE
       ===============================================================
       Feature: {from plan}
       Branch: {branch}
       PR: {url}
 
-      -- APK -----------------------------------------------------------
+      -- Targets touched ------------------------------------------------
+      {android/ and/or companion/jetson-companion.py, from progress}
+
+      -- APK (if android/ changed) ------------------------------------
       {path to app-debug.apk}
 
       -- Install on Samsung S20 (ADB via USB) --------------------------
@@ -458,13 +495,17 @@ nodes:
          (enables Developer options).
       2. S20: Settings → Developer options → enable "USB debugging".
       3. Connect the S20 via USB to the PC; allow debugging from this PC.
-      4. PC (Windows, with platform-tools/adb): 
+      4. PC (Windows, with platform-tools/adb):
            adb install {apk name}
          (On WSL, ADB cannot see USB by default — build on WSL, install from
          Windows, or sideload the .apk.)
       -- Sideload fallback (no ADB) -----------------------------------
       Copy the .apk to the S20 (USB file transfer or download), then tap it in
       the Files app and allow "install from unknown sources".
+
+      -- Companion deploy (if companion/ changed) ---------------------
+      After merge, rsync companion/ to the Jetson + restart the
+      jetson-companion systemd service (manual, outside this workflow).
 
       -- Tasks Completed -----------------------------------------------
       {from progress tracking}
