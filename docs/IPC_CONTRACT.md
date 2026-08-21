@@ -60,7 +60,8 @@ Schema (one JSON object per line):
 | `session_id` | string | all | UUID of the recording session |
 | `video_id` | string\|null | `event` | id of the clip recorded on a detection |
 | `count` | int | `heartbeat` | net bidirectional counter at heartbeat time |
-| `count_delta` | int | `event` | +1 (right→left) / −1 (left→right) |
+| `count_delta` | int | `event` | +1 (right→left) / −1 (left→right) for a **vertical** line; +1 (down→up) / −1 (up→down) for a **horizontal** line. +1 is always the crossing-axis position **decreasing** past the line (BL-83) |
+| `direction` | string | `event` (`crossed`/`id_switch_recovery`) | **(BL-83, additive)** the crossing direction of the event: `LEFT`/`RIGHT` for a vertical line, `UP`/`DOWN` for a horizontal line. `LEFT`/`UP` = +1 (crossing-axis decreasing); `RIGHT`/`DOWN` = −1. The companion's `counting-history.jsonl` reader MUST tolerate the new `UP`/`DOWN` values (additive — see companion follow-up issue) |
 | `status` | int | `heartbeat` | running state code |
 | `auto_mode` | bool | `heartbeat` | auto-record mode on/off |
 | `last_segment` | string\|null | `heartbeat` / `session_end` | current clip filename |
@@ -68,6 +69,8 @@ Schema (one JSON object per line):
 | `counts` | object | `heartbeat` / `session_end` | **(BL-78, additive)** per-species sub-counts `{class_name: count}`; the global `count` stays the sum of these (retro-compatible) |
 | `class_id` | int | `event` (`crossed`/`id_switch_recovery`) | **(BL-78, additive)** class id of the crossing track |
 | `species` | string | `event` (`crossed`/`id_switch_recovery`) | **(BL-78, additive)** resolved class name (from `model-classes.json`); falls back to the raw id string |
+| `counting_line_orientation` | string | `session_start` / `session_end` | **(BL-83, additive)** effective counting-line orientation for the session (`"vertical"` \| `"horizontal"`); persisted per recording with the session metadata |
+| `offset_counting_line` | int | `session_start` / `session_end` | **(BL-83, additive)** effective signed counting-line offset (percent) for the session; persisted per recording with the session metadata |
 
 > ⚠ **This is the tightest contract.** The countingapp's writer lives in
 > `app/src/core/history.py` (animal-counter repo); the companion's reader is
@@ -108,6 +111,7 @@ Schema:
   "box_tracking": true,
   "centroid_tracking": true,
   "offset_counting_line": 10,
+  "counting_line_orientation": "vertical",
   "counting_class_ids": [1]
 }
 ```
@@ -117,7 +121,8 @@ Schema:
 | `draw_tracking` | bool | — | `false` | master toggle: write rendered (tracked) frame vs raw frame |
 | `box_tracking` | bool | — | `false` | draw bounding boxes (sub-toggle, only if `draw_tracking`) |
 | `centroid_tracking` | bool | — | `false` | draw centroid trails (sub-toggle, only if `draw_tracking`) |
-| `offset_counting_line` | int | 0–100 (% of frame height) | `10` | vertical offset of the counting line; **takes full effect only when a new InferThread/Counting is created** (a mid-session change needs a recording restart) |
+| `offset_counting_line` | int | **signed** (loose sanity range `-300..300`, reject non-int/bool in `main.py`) | `10` | **(BL-83)** signed offset of the counting line, in percent of the frame dimension **along the perpendicular axis** (frame width for a vertical line, frame height for a horizontal line). The **authoritative bound is the line staying inside the image with a 200px margin on both edges**: vertical `x ∈ [200, W-200]`, horizontal `y ∈ [200, H-200]`. Because the offset is a percentage but the frame size is only known at runtime, this bound is **enforced by clamping the computed line position to `[200, dim-200]` at use-time** in `counting.py` + `rendering.py` (a clamp that changes the value logs a WARNING). The `main.py` `-300..300` cap only garbage-filters absurd values. Existing `0..100` values stay valid (a sub-range, in-bounds for typical frames). **Takes full effect only when a new InferThread/Counting is created** (a mid-session change needs a recording restart) |
+| `counting_line_orientation` | string | `"vertical"` \| `"horizontal"` | `"vertical"` | **(BL-83)** orientation of the counting line. `"vertical"` = current behavior (a vertical line at `x = W/2 + W*off/100`, animals cross right→left = +1 / `LEFT`). `"horizontal"` = a horizontal line at `y = H/2 + H*off/100`, animals cross down→up = +1 / `UP`. Hot-reloaded per recording with the same "next recording" semantics as `offset_counting_line` (absent/invalid/bool ⇒ `"vertical"`) |
 | `counting_class_ids` | array[int] | subset of `model-classes.json` `names` ids | `[default_counting_class]` | **(BL-78)** which class IDs the countingapp counts; hot-reloaded per recording (validated against `model-classes.json`; invalid IDs dropped with a WARNING; fallback `[default_counting_class]` when absent/empty/all-invalid) |
 
 Keys not present are ignored (defaults from `app/src/settings.py` apply). A
