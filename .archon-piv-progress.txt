@@ -10,3 +10,4 @@ Task 8: SettingsViewModel mask-zones/snapshot/save state machines — 8a7b7f8
 Task 9: SettingsScreen mask-zones section (draw overlay + zone list + save) — f43c618
 Task 10: bilingual mask-zones strings (values/ + values-fr/) — f43c618
 Task 11: docs GET /api/snapshot + mask_zones/draw_mask_zones, version 8 — d79d177
+Task 12: mask_zones/draw_mask_zones validation tests + snapshot helper test — d209d88
