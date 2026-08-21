@@ -187,7 +187,10 @@
     <string name="draw_tracking_subtitle">Annoter boîtes et trails dans les enregistrements sauvegardés</string>
     <string name="box_tracking_title">Boîtes</string>
     <string name="centroid_tracking_title">Trails</string>
-    <string name="offset_slider_title">Position de la ligne</string>
+    <string name="offset_slider_title">Décalage (signé, centré sur 0)</string>
+    <string name="offset_orientation_label">Orientation</string>
+    <string name="offset_orientation_vertical">Verticale</string>
+    <string name="offset_orientation_horizontal">Horizontale</string>
     <string name="offset_warning">Modifie le comptage</string>
     <string name="settings_load_error">Échec du chargement des réglages depuis le Jetson</string>
     <string name="settings_save_error">Échec de l\'enregistrement des réglages vers le Jetson</string>
@@ -200,4 +203,13 @@
     <string name="about_companion_loading">Récupération…</string>
     <string name="about_companion_error">Indisponible</string>
     <string name="about_refresh">Actualiser</string>
+
+    <!-- BL-82 : sélection des espèces comptables -->
+    <string name="section_counted_species">Espèces comptées</string>
+    <string name="species_loading">Récupération des espèces…</string>
+    <string name="species_unavailable">Catalogue d’espèces pas encore publié (comptage non démarré).</string>
+    <string name="species_error">Catalogue d’espèces indisponible.</string>
+    <string name="species_empty">Aucune espèce comptable publiée.</string>
+    <string name="species_retry">Réessayer</string>
+    <string name="species_hot_reload_note">Pris en compte au prochain enregistrement (à chaud, sans redémarrage).</string>
 </resources>

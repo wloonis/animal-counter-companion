@@ -340,6 +340,21 @@ object JetsonConnectionManager {
         }
     }
 
+    /** (BL-82) On-demand `GET /api/classes` — the countable species catalog
+     *  + the current `counting_class_ids` selection. Reuses the same IP
+     *  resolution + WiFi-bound transport as [getSettings]. Returns
+     *  [Result.failure] with `HTTP 404` when the countingapp has not yet
+     *  published `model-classes.json` (caller surfaces "catalog unavailable"). */
+    suspend fun getClasses(): Result<ClassCatalog> {
+        val ip = resolveActiveIp() ?: return Result.failure(IllegalStateException("Jetson introuvable"))
+        val network = activeWifiNetworkSafe()
+        return when (val res = JetsonClient.getClasses(ip = ip, network = network)) {
+            is ApiResult.Success -> Result.success(res.data)
+            is ApiResult.HttpError -> Result.failure(IllegalStateException("HTTP ${res.code}"))
+            is ApiResult.NetworkError -> Result.failure(IllegalStateException(res.message))
+        }
+    }
+
     /**
      * On-demand `PUT /api/settings` (BL-76) — PATCH-like merge: only the
      * non-`null` fields of [settings] are serialized by [JetsonSettings.toJson];

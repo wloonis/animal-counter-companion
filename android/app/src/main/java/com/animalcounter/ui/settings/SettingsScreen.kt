@@ -37,6 +37,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -62,6 +63,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.animalcounter.BuildConfig
 import com.animalcounter.R
+import com.animalcounter.data.OFFSET_SLIDER_MAX
+import com.animalcounter.data.OFFSET_SLIDER_MIN
 import com.animalcounter.ui.common.AppNavIcon
 
 /**
@@ -139,7 +142,9 @@ fun SettingsScreen() {
     val boxTracking by vm.boxTracking.collectAsState()
     val centroidTracking by vm.centroidTracking.collectAsState()
     val offsetCountingLine by vm.offsetCountingLine.collectAsState()
+    val countingLineOrientation by vm.countingLineOrientation.collectAsState()
     val companionVersion by vm.companionVersion.collectAsState()
+    val classCatalog by vm.classCatalog.collectAsState()
 
     // Confirmation dialog for the destructive Jetson poweroff. Hidden by
     // default; the "Arrêter le Jetson" button opens it; confirming dismisses
@@ -424,8 +429,30 @@ fun SettingsScreen() {
                 }
             }
 
-            // ---- 5. Ligne de comptage ----
+            // ---- 5. Ligne de comptage (BL-84: orientation H/V + offset signé) ----
             Section(title = stringResource(R.string.section_counting_line)) {
+                // Orientation selector: two buttons (Verticale / Horizontale).
+                Text(
+                    text = stringResource(R.string.offset_orientation_label),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilterChip(
+                        selected = countingLineOrientation == "vertical",
+                        onClick = { vm.setCountingLineOrientation("vertical") },
+                        label = { Text(stringResource(R.string.offset_orientation_vertical)) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    FilterChip(
+                        selected = countingLineOrientation == "horizontal",
+                        onClick = { vm.setCountingLineOrientation("horizontal") },
+                        label = { Text(stringResource(R.string.offset_orientation_horizontal)) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
                 Text(
                     text = stringResource(R.string.offset_slider_title),
                     style = MaterialTheme.typography.bodyLarge,
@@ -433,13 +460,14 @@ fun SettingsScreen() {
                 Slider(
                     value = offsetCountingLine.toFloat(),
                     onValueChange = { vm.setOffsetCountingLine(it.toInt()) },
-                    valueRange = 0f..100f,
+                    // BL-84: signed range, centered at 0.
+                    valueRange = OFFSET_SLIDER_MIN.toFloat()..OFFSET_SLIDER_MAX.toFloat(),
                     steps = 0,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                // Live value readout (e.g. "10").
+                // Live value readout (signed, e.g. "-10" / "0" / "+12").
                 Text(
-                    text = offsetCountingLine.toString(),
+                    text = if (offsetCountingLine > 0) "+${offsetCountingLine}" else offsetCountingLine.toString(),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -449,6 +477,95 @@ fun SettingsScreen() {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
+            }
+
+            // ---- 5b. Espèces comptées (BL-82) ----
+            Section(title = stringResource(R.string.section_counted_species)) {
+                when (val state = classCatalog) {
+                    is SettingsViewModel.ClassCatalogState.Loading -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Text(
+                                text = stringResource(R.string.species_loading),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    is SettingsViewModel.ClassCatalogState.Unavailable -> {
+                        Text(
+                            text = stringResource(R.string.species_unavailable),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = { vm.refreshClasses() }) {
+                            Text(stringResource(R.string.species_retry))
+                        }
+                    }
+                    is SettingsViewModel.ClassCatalogState.Error -> {
+                        Text(
+                            text = stringResource(R.string.species_error),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = { vm.refreshClasses() }) {
+                            Text(stringResource(R.string.species_retry))
+                        }
+                    }
+                    is SettingsViewModel.ClassCatalogState.Idle -> {
+                        Text(
+                            text = stringResource(R.string.species_error),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    is SettingsViewModel.ClassCatalogState.Loaded -> {
+                        val catalog = state.catalog
+                        if (catalog.classes.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.species_empty),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            catalog.classes.forEach { entry ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = entry.name,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                        )
+                                        Text(
+                                            text = "id ${entry.id}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Switch(
+                                        checked = entry.id in catalog.countingClassIds,
+                                        onCheckedChange = { vm.toggleClass(entry.id) },
+                                    )
+                                }
+                            }
+                            Text(
+                                text = stringResource(R.string.species_hot_reload_note),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
             }
 
             // ---- 6. À propos (BL-77) ----

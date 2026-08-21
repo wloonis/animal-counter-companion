@@ -62,8 +62,22 @@ const val DEFAULT_BOX_TRACKING: Boolean = true
 /** Default value of the "Trails" sub-toggle. */
 const val DEFAULT_CENTROID_TRACKING: Boolean = true
 
-/** Default value of the counting-line position (0-100). */
-const val DEFAULT_OFFSET_COUNTING_LINE: Int = 10
+/** Default value of the counting-line offset (BL-84: SIGNED, centered at 0).
+ *  Range -50..50 (practical UI range; the companion accepts -300..300 and
+ *  the counting app clamps the computed line position inside the image with a
+ *  200px margin at use-time). Was 10 (unsigned 0-100) before BL-84. */
+const val DEFAULT_OFFSET_COUNTING_LINE: Int = 0
+
+/** Default counting-line orientation (BL-84): "vertical" (a vertical line at
+ *  x = W/2 + W*off/100) | "horizontal" (a horizontal line at
+ *  y = H/2 + H*off/100). Mirrors the counting app default. */
+const val DEFAULT_COUNTING_LINE_ORIENTATION: String = "vertical"
+
+/** Practical UI range for the signed offset slider. The companion accepts
+ *  the loose -300..300 sanity range; we cap the slider at +/-50 for usable
+ *  fine control (the counting app clamps to image bounds anyway). */
+const val OFFSET_SLIDER_MIN: Int = -50
+const val OFFSET_SLIDER_MAX: Int = 50
 
 /** Process-wide [DataStore] delegate (single instance per [Context]). */
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
@@ -106,6 +120,8 @@ class SettingsRepository(private val context: Context) {
         booleanPreferencesKey(CENTROID_TRACKING_KEY)
     private val offsetCountingLineKey =
         intPreferencesKey(OFFSET_COUNTING_LINE_KEY)
+    private val countingLineOrientationKey =
+        stringPreferencesKey(COUNTING_LINE_ORIENTATION_KEY)
 
     /**
      * The manual-override Jetson IP. Emits [DEFAULT_JETSON_IP] when no
@@ -164,14 +180,25 @@ class SettingsRepository(private val context: Context) {
         }
 
     /**
-     * Offline cache of the counting-line position
-     * (`offset_counting_line`, 0-100). Emits `10` when unset. Changing
-     * this value affects the counting line position and therefore the
-     * count; the UI warns the user accordingly.
+     * Offline cache of the counting-line offset
+     * (`offset_counting_line`, BL-84: SIGNED, centered at 0; practical UI
+     * range -50..50). Emits [DEFAULT_OFFSET_COUNTING_LINE] when unset.
+     * Changing this value affects the counting line position and therefore
+     * the count; the UI warns the user accordingly.
      */
     val offsetCountingLine: Flow<Int> =
         context.dataStore.data.map { prefs ->
             prefs[offsetCountingLineKey] ?: DEFAULT_OFFSET_COUNTING_LINE
+        }
+
+    /**
+     * Offline cache of the counting-line orientation
+     * (`counting_line_orientation`, BL-84): "vertical" | "horizontal".
+     * Emits [DEFAULT_COUNTING_LINE_ORIENTATION] when unset.
+     */
+    val countingLineOrientation: Flow<String> =
+        context.dataStore.data.map { prefs ->
+            prefs[countingLineOrientationKey] ?: DEFAULT_COUNTING_LINE_ORIENTATION
         }
 
     /**
@@ -270,14 +297,29 @@ class SettingsRepository(private val context: Context) {
     }
 
     /**
-     * Persist [value] as the counting-line position
-     * (`offset_counting_line`). [value] is clamped to the 0-100 range
-     * before being stored.
+     * Persist [value] as the counting-line offset
+     * (`offset_counting_line`, BL-84: SIGNED). [value] is clamped to the
+     * practical UI range [OFFSET_SLIDER_MIN, OFFSET_SLIDER_MAX] before being
+     * stored (the companion accepts -300..300; the counting app clamps the
+     * computed line position inside the image at use-time).
      */
     suspend fun setOffsetCountingLine(value: Int) {
-        val clamped = value.coerceIn(0, 100)
+        val clamped = value.coerceIn(OFFSET_SLIDER_MIN, OFFSET_SLIDER_MAX)
         context.dataStore.edit { prefs ->
             prefs[offsetCountingLineKey] = clamped
+        }
+    }
+
+    /**
+     * Persist [value] as the counting-line orientation
+     * (`counting_line_orientation`, BL-84). [value] is coerced to the
+     * canonical "vertical" | "horizontal" (defaults to "vertical" on any
+     * other string, mirroring the counting app's resolve fallback).
+     */
+    suspend fun setCountingLineOrientation(value: String) {
+        val canonical = if (value == "horizontal") "horizontal" else "vertical"
+        context.dataStore.edit { prefs ->
+            prefs[countingLineOrientationKey] = canonical
         }
     }
 
@@ -301,5 +343,6 @@ class SettingsRepository(private val context: Context) {
         const val BOX_TRACKING_KEY = "box_tracking"
         const val CENTROID_TRACKING_KEY = "centroid_tracking"
         const val OFFSET_COUNTING_LINE_KEY = "offset_counting_line"
+        const val COUNTING_LINE_ORIENTATION_KEY = "counting_line_orientation"
     }
 }

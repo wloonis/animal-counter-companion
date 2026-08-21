@@ -187,7 +187,10 @@
     <string name="draw_tracking_subtitle">Annotate boxes and trails in saved recordings</string>
     <string name="box_tracking_title">Boxes</string>
     <string name="centroid_tracking_title">Trails</string>
-    <string name="offset_slider_title">Counting line position</string>
+    <string name="offset_slider_title">Offset (signed, centered at 0)</string>
+    <string name="offset_orientation_label">Orientation</string>
+    <string name="offset_orientation_vertical">Vertical</string>
+    <string name="offset_orientation_horizontal">Horizontal</string>
     <string name="offset_warning">Affects counting</string>
     <string name="settings_load_error">Couldn\'t load settings from Jetson</string>
     <string name="settings_save_error">Couldn\'t save settings to Jetson</string>
@@ -200,4 +203,13 @@
     <string name="about_companion_loading">Retrieving…</string>
     <string name="about_companion_error">Unavailable</string>
     <string name="about_refresh">Refresh</string>
+
+    <!-- BL-82: countable species selection -->
+    <string name="section_counted_species">Counted species</string>
+    <string name="species_loading">Retrieving species…</string>
+    <string name="species_unavailable">Species catalog not published yet (counting app not started).</string>
+    <string name="species_error">Species catalog unavailable.</string>
+    <string name="species_empty">No countable species published.</string>
+    <string name="species_retry">Retry</string>
+    <string name="species_hot_reload_note">Applied at the next recording (hot-reload, no restart).</string>
 </resources>

@@ -24,12 +24,16 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.animalcounter.data.DEFAULT_BOX_TRACKING
 import com.animalcounter.data.DEFAULT_CENTROID_TRACKING
+import com.animalcounter.data.DEFAULT_COUNTING_LINE_ORIENTATION
 import com.animalcounter.data.DEFAULT_DRAW_TRACKING
 import com.animalcounter.data.DEFAULT_HOTSPOT_IP
 import com.animalcounter.data.DEFAULT_JETSON_IP
 import com.animalcounter.data.DEFAULT_LAN_IP
 import com.animalcounter.data.DEFAULT_OFFSET_COUNTING_LINE
+import com.animalcounter.data.OFFSET_SLIDER_MAX
+import com.animalcounter.data.OFFSET_SLIDER_MIN
 import com.animalcounter.data.SettingsRepository
+import com.animalcounter.net.ClassCatalog
 import com.animalcounter.net.JetsonConnectionManager
 import com.animalcounter.net.JetsonSettings
 import com.animalcounter.net.PoweroffResponse
@@ -123,10 +127,17 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _offsetCountingLine = MutableStateFlow(DEFAULT_OFFSET_COUNTING_LINE)
     /**
-     * Counting-line position (`offset_counting_line`, 0-100). Changing this
-     * affects the count; the UI warns the user accordingly.
+     * Counting-line offset (`offset_counting_line`, BL-84: SIGNED, centered at 0;
+     * practical UI range -50..50). Changing this affects the count; the UI warns
+     * the user accordingly.
      */
     val offsetCountingLine: StateFlow<Int> = _offsetCountingLine.asStateFlow()
+
+    private val _countingLineOrientation =
+        MutableStateFlow(DEFAULT_COUNTING_LINE_ORIENTATION)
+    /** (BL-84) Counting-line orientation: "vertical" | "horizontal". */
+    val countingLineOrientation: StateFlow<String> =
+        _countingLineOrientation.asStateFlow()
 
     /**
      * UI-facing state of an on-demand Jetson poweroff (`POST /api/power`).
@@ -188,6 +199,32 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     /** Observable live Jetson companion version for the « À propos » card. */
     val companionVersion: StateFlow<CompanionVersionState> = _companionVersion.asStateFlow()
 
+    /**
+     * UI-facing state of the countable species catalog fetch (`GET /api/classes`,
+     * BL-82). The catalog depends on the model deployed on the connected
+     * Jetson; the selection is the live `counting_class_ids`.
+     */
+    sealed interface ClassCatalogState {
+        /** No fetch attempted yet. */
+        data object Idle : ClassCatalogState
+        /** A fetch is in flight. */
+        data object Loading : ClassCatalogState
+        /** Catalog loaded; [catalog] holds the species + the current selection. */
+        data class Loaded(val catalog: ClassCatalog) : ClassCatalogState
+        /** The countingapp has not published `model-classes.json` yet (HTTP 404) —
+         *  transient; the user can retry. */
+        data object Unavailable : ClassCatalogState
+        /** No reachable Jetson, non-404 HTTP, or network error. */
+        data object Error : ClassCatalogState
+    }
+
+    private val _classCatalog = MutableStateFlow<ClassCatalogState>(ClassCatalogState.Idle)
+    /** Observable countable-species catalog + selection for the Réglages section. */
+    val classCatalog: StateFlow<ClassCatalogState> = _classCatalog.asStateFlow()
+
+    /** Pending push job for a `counting_class_ids` change (debounced). */
+    private var classIdsPushJob: Job? = null
+
     /** Whether the initial DataStore values have been loaded. */
     @Suppress("unused")
     private var loaded = false
@@ -215,6 +252,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             _boxTracking.value = repo.boxTracking.first()
             _centroidTracking.value = repo.centroidTracking.first()
             _offsetCountingLine.value = repo.offsetCountingLine.first()
+            _countingLineOrientation.value = repo.countingLineOrientation.first()
             loaded = true
             // Best-effort sync from the Jetson: if reachable, the on-device
             // runtime-settings.json overrides the local cache so the UI shows
@@ -223,6 +261,9 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             // Best-effort fetch of the live companion version for the
             // « À propos » card (mirrors refreshSettingsFromJetson).
             refreshCompanionVersion()
+            // BL-82: best-effort fetch of the countable species catalog +
+            // current selection for the « Espèces comptées » section.
+            refreshClasses()
         }
     }
 
@@ -319,7 +360,57 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
                     _offsetCountingLine.value = it
                     repo.setOffsetCountingLine(it)
                 }
+                s.countingLineOrientation?.let {
+                    _countingLineOrientation.value = it
+                    repo.setCountingLineOrientation(it)
+                }
             }
+        }
+    }
+
+    /**
+     * (BL-82) Best-effort fetch of the countable species catalog + the current
+     * `counting_class_ids` selection (`GET /api/classes`). Maps the result onto
+     * [ClassCatalogState]: Loaded on 200, Unavailable on 404 (the countingapp
+     * has not published `model-classes.json` yet), Error otherwise. Never
+     * throws. Called at init and by the « Espèces comptées » section's
+     * retry affordance.
+     */
+    fun refreshClasses() {
+        _classCatalog.value = ClassCatalogState.Loading
+        viewModelScope.launch {
+            val result = JetsonConnectionManager.getClasses()
+            _classCatalog.value = result.fold(
+                onSuccess = { ClassCatalogState.Loaded(it) },
+                onFailure = { e ->
+                    val msg = e.message ?: ""
+                    if (msg.contains("HTTP 404")) ClassCatalogState.Unavailable
+                    else ClassCatalogState.Error
+                },
+            )
+        }
+    }
+
+    /**
+     * (BL-82) Toggle whether [id] is in the counting selection. Updates the
+     * Loaded catalog state in place (so the switch flips instantly) and
+     * schedules a debounced `PUT /api/settings {counting_class_ids}` push.
+     * Hot-reloaded by the countingapp at the next recording start (no restart).
+     * No-op when the catalog is not Loaded.
+     */
+    fun toggleClass(id: Int) {
+        val current = (_classCatalog.value as? ClassCatalogState.Loaded)?.catalog ?: return
+        val newSelection = if (id in current.countingClassIds) {
+            current.countingClassIds - id
+        } else {
+            current.countingClassIds + id
+        }
+        // Update the state immediately for a responsive UI (the PUT is best-effort).
+        _classCatalog.value = ClassCatalogState.Loaded(current.copy(countingClassIds = newSelection))
+        classIdsPushJob?.cancel()
+        classIdsPushJob = viewModelScope.launch {
+            delay(SETTINGS_PUSH_DEBOUNCE_MS)
+            JetsonConnectionManager.putSettings(JetsonSettings(countingClassIds = newSelection))
         }
     }
 
@@ -349,13 +440,25 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Counting-line slider change. [value] is clamped to 0-100 by the
-     * repository. Updates the local flow + cache, then schedules a
-     * debounced push.
+     * Counting-line offset slider change (BL-84: SIGNED, centered at 0).
+     * [value] is clamped to the practical UI range [OFFSET_SLIDER_MIN,
+     * OFFSET_SLIDER_MAX] by the repository. Updates the local flow + cache,
+     * then schedules a debounced push.
      */
     fun setOffsetCountingLine(value: Int) {
-        _offsetCountingLine.value = value.coerceIn(0, 100)
+        _offsetCountingLine.value = value.coerceIn(OFFSET_SLIDER_MIN, OFFSET_SLIDER_MAX)
         viewModelScope.launch { repo.setOffsetCountingLine(value) }
+        scheduleSettingsPush()
+    }
+
+    /**
+     * (BL-84) Counting-line orientation change ("vertical" | "horizontal").
+     * Updates the local flow + cache, then schedules a debounced push.
+     */
+    fun setCountingLineOrientation(value: String) {
+        val canonical = if (value == "horizontal") "horizontal" else "vertical"
+        _countingLineOrientation.value = canonical
+        viewModelScope.launch { repo.setCountingLineOrientation(canonical) }
         scheduleSettingsPush()
     }
 
@@ -375,6 +478,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
                 boxTracking = _boxTracking.value,
                 centroidTracking = _centroidTracking.value,
                 offsetCountingLine = _offsetCountingLine.value,
+                countingLineOrientation = _countingLineOrientation.value,
             )
             JetsonConnectionManager.putSettings(body)
         }
