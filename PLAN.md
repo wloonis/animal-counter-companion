@@ -128,7 +128,7 @@ change.
   `draw_mask_zones` to the `PUT/GET /api/settings` recognised-keys list + curl
   examples (PUT a `mask_zones` array; negative test for an invalid rect → 400),
   bump the documented companion version to 8. Do NOT edit `docs/IPC_CONTRACT.md`.
-- [ ] Task 12: EDIT `tests/test_companion_settings_validation.py` — add
+- [x] Task 12: EDIT `tests/test_companion_settings_validation.py` — add
   `mask_zones` validation cases (valid `[{x:0.8,y:0,w:0.2,h:1}]` ok, `[]` ok;
   rejected: x/y/w/h out of `[0..1]`, `w<=0`, `h<=0`, `x+w>1`, `y+h>1`, non-dict
   element, missing field, bool field value, non-list) + `draw_mask_zones` bool
