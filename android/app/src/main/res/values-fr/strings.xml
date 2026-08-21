@@ -212,4 +212,19 @@
     <string name="species_empty">Aucune espèce comptable publiée.</string>
     <string name="species_retry">Réessayer</string>
     <string name="species_hot_reload_note">Pris en compte au prochain enregistrement (à chaud, sans redémarrage).</string>
+
+    <!-- BL-88 — section « Zones de masquage » dans Réglages -->
+    <string name="section_mask_zones">Zones de masquage</string>
+    <string name="mask_capture_preview">Capturer l\'aperçu</string>
+    <string name="mask_snapshot_unavailable">Aperçu pas encore disponible</string>
+    <string name="mask_snapshot_error">Erreur d\'aperçu</string>
+    <string name="mask_snapshot_loading">Récupération de l\'aperçu…</string>
+    <string name="mask_zone_label">Zone %1$d</string>
+    <string name="mask_draw_overlay_title">Afficher les zones à l\'écran</string>
+    <string name="mask_save">Enregistrer</string>
+    <string name="mask_saving">Enregistrement…</string>
+    <string name="mask_saved">Enregistré ✓</string>
+    <string name="mask_save_error">Échec de l\'enregistrement</string>
+    <string name="mask_drag_hint">Glisser sur l\'aperçu pour tracer une zone de masquage.</string>
+    <string name="mask_empty">Aucune zone de masquage.</string>
 </resources>

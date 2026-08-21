@@ -20,11 +20,14 @@
 package com.animalcounter.ui.settings
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.animalcounter.data.DEFAULT_BOX_TRACKING
 import com.animalcounter.data.DEFAULT_CENTROID_TRACKING
 import com.animalcounter.data.DEFAULT_COUNTING_LINE_ORIENTATION
+import com.animalcounter.data.DEFAULT_DRAW_MASK_ZONES
 import com.animalcounter.data.DEFAULT_DRAW_TRACKING
 import com.animalcounter.data.DEFAULT_HOTSPOT_IP
 import com.animalcounter.data.DEFAULT_JETSON_IP
@@ -36,8 +39,10 @@ import com.animalcounter.data.SettingsRepository
 import com.animalcounter.net.ClassCatalog
 import com.animalcounter.net.JetsonConnectionManager
 import com.animalcounter.net.JetsonSettings
+import com.animalcounter.net.MaskZone
 import com.animalcounter.net.PoweroffResponse
 import com.animalcounter.net.SyncResult
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +50,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Debounce window (ms) before a typed IP is persisted to DataStore. */
 private const val IP_PERSIST_DEBOUNCE_MS = 500L
@@ -138,6 +144,73 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     /** (BL-84) Counting-line orientation: "vertical" | "horizontal". */
     val countingLineOrientation: StateFlow<String> =
         _countingLineOrientation.asStateFlow()
+
+    // ---- BL-88 mask zones + snapshot ----
+
+    private val _maskZones = MutableStateFlow<List<MaskZone>>(emptyList())
+    /**
+     * (BL-88) The in-memory mask-zone list (normalized axis-aligned rects
+     * `{x,y,w,h} ∈ [0..1]`). Seeded from `GET /api/settings` on init; the
+     * Jetson `runtime-settings.json` is the source of truth, but the draw UX
+     * needs the live snapshot, so the list is held here (NOT cached in
+     * DataStore). Edited locally via [addMaskZone]/[removeMaskZone]/
+     * [updateMaskZone] and persisted to the Jetson via [saveMaskZones].
+     */
+    val maskZones: StateFlow<List<MaskZone>> = _maskZones.asStateFlow()
+
+    private val _drawMaskZones = MutableStateFlow(DEFAULT_DRAW_MASK_ZONES)
+    /**
+     * (BL-88) Whether the countingapp draws the mask zones on screen
+     * (`draw_mask_zones`). Seeded from `GET /api/settings` and cached in
+     * DataStore (default `true`) for offline restore (mirrors the tracking
+     * toggles). Edits schedule a `PUT` via [saveMaskZones].
+     */
+    val drawMaskZones: StateFlow<Boolean> = _drawMaskZones.asStateFlow()
+
+    /**
+     * (BL-88) UI-facing state of the camera snapshot fetch
+     * (`GET /api/snapshot`). Surfaced to the Settings screen so the « Zones
+     * de masquage » section can show the preview image, a spinner, an
+     * « Aperçu pas encore disponible » placeholder (404), or an error.
+     */
+    sealed interface SnapshotState {
+        /** No snapshot requested yet (default). */
+        data object Idle : SnapshotState
+        /** A snapshot fetch is in flight. */
+        data object Loading : SnapshotState
+        /** Snapshot decoded; [bitmap] holds the preview to draw zones on. */
+        data class Loaded(val bitmap: Bitmap) : SnapshotState
+        /** The countingapp has not written `snapshot.jpg` yet (HTTP 404) —
+         *  transient; the user can retry. */
+        data object Unavailable : SnapshotState
+        /** No reachable Jetson, non-404 HTTP, network error, or decode failure. */
+        data object Error : SnapshotState
+    }
+
+    private val _snapshot = MutableStateFlow<SnapshotState>(SnapshotState.Idle)
+    /** Observable camera snapshot state for the « Zones de masquage » section. */
+    val snapshot: StateFlow<SnapshotState> = _snapshot.asStateFlow()
+
+    /**
+     * (BL-88) UI-facing state of a `PUT /api/settings {mask_zones,
+     * draw_mask_zones}` save. Surfaced to the Settings screen so the
+     * « Enregistrer » button can show a spinner, a green confirmation, or
+     * an error.
+     */
+    sealed interface MaskSaveState {
+        /** No save requested yet (default). */
+        data object Idle : MaskSaveState
+        /** A save is in flight. */
+        data object Saving : MaskSaveState
+        /** Last save succeeded; the merged settings have been re-applied. */
+        data object Saved : MaskSaveState
+        /** No reachable Jetson, 400 on a validation error, or network error. */
+        data object Error : MaskSaveState
+    }
+
+    private val _maskSave = MutableStateFlow<MaskSaveState>(MaskSaveState.Idle)
+    /** Observable mask-zone save outcome for the « Enregistrer » button. */
+    val maskSave: StateFlow<MaskSaveState> = _maskSave.asStateFlow()
 
     /**
      * UI-facing state of an on-demand Jetson poweroff (`POST /api/power`).
@@ -253,6 +326,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             _centroidTracking.value = repo.centroidTracking.first()
             _offsetCountingLine.value = repo.offsetCountingLine.first()
             _countingLineOrientation.value = repo.countingLineOrientation.first()
+            _drawMaskZones.value = repo.drawMaskZones.first()
             loaded = true
             // Best-effort sync from the Jetson: if reachable, the on-device
             // runtime-settings.json overrides the local cache so the UI shows
@@ -364,8 +438,125 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
                     _countingLineOrientation.value = it
                     repo.setCountingLineOrientation(it)
                 }
+                // (BL-88) mask zones are kept in-memory only (not cached);
+                // draw_mask_zones is mirrored to DataStore like the tracking
+                // toggles.
+                s.maskZones?.let { _maskZones.value = it }
+                s.drawMaskZones?.let {
+                    _drawMaskZones.value = it
+                    repo.setDrawMaskZones(it)
+                }
             }
         }
+    }
+
+    /**
+     * (BL-88) Best-effort fetch of the camera snapshot (`GET /api/snapshot`).
+     * Sets state to [SnapshotState.Loading], decodes the JPEG bytes into a
+     * [Bitmap] off the main thread (`Dispatchers.Default`) via
+     * `BitmapFactory.decodeByteArray`, then maps the result onto
+     * [SnapshotState]: Loaded on 200 + a decodable image, Unavailable on 404
+     * (the countingapp has not written `snapshot.jpg` yet), Error otherwise
+     * (no reachable Jetson, non-404 HTTP, network error, or a null decode).
+     * Never throws. Called by the « Capturer l'aperçu » button + the retry
+     * affordances.
+     */
+    fun refreshSnapshot() {
+        _snapshot.value = SnapshotState.Loading
+        viewModelScope.launch {
+            val result = JetsonConnectionManager.getSnapshot()
+            _snapshot.value = result.fold(
+                onSuccess = { bytes ->
+                    val bmp = withContext(Dispatchers.Default) {
+                        if (bytes.isEmpty()) null
+                        else BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    }
+                    if (bmp != null) SnapshotState.Loaded(bmp)
+                    else SnapshotState.Error
+                },
+                onFailure = { e ->
+                    val msg = e.message ?: ""
+                    if (msg.contains("HTTP 404")) SnapshotState.Unavailable
+                    else SnapshotState.Error
+                },
+            )
+        }
+    }
+
+    /**
+     * (BL-88) Add a mask zone (a normalized axis-aligned rect drawn by the
+     * operator). Updates the in-memory list immediately (the PUT is explicit
+     * via [saveMaskZones]). A drawn rect is always valid by construction, but
+     * the caller should clamp each field to `[0..1]` against the displayed
+     * image bounds before calling.
+     */
+    fun addMaskZone(zone: MaskZone) {
+        _maskZones.value = _maskZones.value + zone
+    }
+
+    /**
+     * (BL-88) Remove the mask zone at [index]. No-op when out of range.
+     */
+    fun removeMaskZone(index: Int) {
+        val current = _maskZones.value
+        if (index !in current.indices) return
+        _maskZones.value = current.toMutableList().apply { removeAt(index) }
+    }
+
+    /**
+     * (BL-88) Replace the mask zone at [index] with [zone]. No-op when out of
+     * range (the draw overlay rebuilds the list from scratch on each drag, so
+     * this is mainly for tests/future fine-edit).
+     */
+    fun updateMaskZone(index: Int, zone: MaskZone) {
+        val current = _maskZones.value
+        if (index !in current.indices) return
+        _maskZones.value = current.toMutableList().apply { this[index] = zone }
+    }
+
+    /**
+     * (BL-88) Toggle whether the countingapp draws the mask zones on screen
+     * (`draw_mask_zones`). Updates the local flow + DataStore cache (mirrors
+     * the tracking toggles); the Jetson push is explicit via [saveMaskZones].
+     */
+    fun setDrawMaskZones(value: Boolean) {
+        _drawMaskZones.value = value
+        viewModelScope.launch { repo.setDrawMaskZones(value) }
+    }
+
+    /**
+     * (BL-88) Persist the current mask-zone list + the `draw_mask_zones`
+     * toggle to the Jetson via `PUT /api/settings {mask_zones,
+     * draw_mask_zones}`. Sets state to [MaskSaveState.Saving], then on success
+     * re-applies the echoed merged settings (so the in-memory list reflects
+     * the server-side truth) and sets [MaskSaveState.Saved]; on failure sets
+     * [MaskSaveState.Error]. Never throws.
+     */
+    fun saveMaskZones() {
+        _maskSave.value = MaskSaveState.Saving
+        viewModelScope.launch {
+            val body = JetsonSettings(
+                maskZones = _maskZones.value,
+                drawMaskZones = _drawMaskZones.value,
+            )
+            val result = JetsonConnectionManager.putSettings(body)
+            _maskSave.value = result.fold(
+                onSuccess = { s ->
+                    s.maskZones?.let { _maskZones.value = it }
+                    s.drawMaskZones?.let {
+                        _drawMaskZones.value = it
+                        repo.setDrawMaskZones(it)
+                    }
+                    MaskSaveState.Saved
+                },
+                onFailure = { MaskSaveState.Error },
+            )
+        }
+    }
+
+    /** (BL-88) Reset [maskSave] to [MaskSaveState.Idle] (e.g. before retrying). */
+    fun clearMaskSaveState() {
+        _maskSave.value = MaskSaveState.Idle
     }
 
     /**

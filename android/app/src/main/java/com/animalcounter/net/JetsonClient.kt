@@ -498,6 +498,22 @@ object JetsonClient {
         getJson(ip, "/api/identify", network) { parseIdentifyVersion(it) }
 
     /**
+     * (BL-88) `GET /api/snapshot` → the camera preview JPEG bytes served by
+     * the companion from `/files/snapshot.jpg`. Unlike the JSON getters this
+     * is a binary payload, so it goes through the [getBytes] twin of
+     * [getJson] (same WiFi-bound transport, 5s timeouts, `Accept: image/jpeg`,
+     * never throws). 200 → [ApiResult.Success] with the raw [ByteArray]; 404
+     * (no snapshot written yet) → [ApiResult.HttpError](404); connect/read
+     * failure → [ApiResult.NetworkError]. The caller decodes the bytes into a
+     * [android.graphics.Bitmap] off the main thread (see SettingsViewModel).
+     */
+    suspend fun getSnapshot(
+        ip: String,
+        network: Network? = null,
+    ): ApiResult<ByteArray> =
+        getBytes(ip, "/api/snapshot", network)
+
+    /**
      * Shared transport for the BL-76 write endpoints: binds to [network]
      * (the WiFi HotSpot) when non-null, applies the 5s connect/read timeouts,
      * sends [payload] as the request body with `Content-Type: application/json`,
@@ -571,6 +587,51 @@ object JetsonClient {
                 if (code == 200) {
                     ApiResult.Success(parse(body))
                 } else {
+                    ApiResult.HttpError(code)
+                }
+            } finally {
+                conn.disconnect()
+            }
+        } catch (t: Throwable) {
+            ApiResult.NetworkError(t.message ?: t.javaClass.simpleName)
+        }
+    }
+
+    /**
+     * (BL-88) Binary twin of [getJson]: same WiFi-bound [HttpURLConnection]
+     * transport, 5s connect/read timeouts, `Accept: image/jpeg`, but drains the
+     * response body into a [ByteArray] instead of decoding it as UTF-8 text
+     * (a JPEG is binary — `readText()` would corrupt it). 200 →
+     * [ApiResult.Success] with the raw bytes, non-2xx →
+     * [ApiResult.HttpError], thrown/connect/read failure →
+     * [ApiResult.NetworkError]. Never throws. The whole snapshot is read into
+     * memory (the JPEG is small); the caller decodes it into a [Bitmap] off
+     * the main thread.
+     */
+    private suspend fun getBytes(
+        ip: String,
+        path: String,
+        network: Network?,
+    ): ApiResult<ByteArray> = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("http://${sanitizeIp(ip)}:$JETSON_PORT$path")
+            val conn = (openBound(url, network) as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = CONNECT_TIMEOUT_MS
+                readTimeout = READ_TIMEOUT_MS
+                instanceFollowRedirects = false
+                useCaches = false
+                setRequestProperty("Accept", "image/jpeg")
+            }
+            try {
+                val code = conn.responseCode
+                if (code == 200) {
+                    val bytes = conn.inputStream?.use { it.readBytes() }
+                        ?: ByteArray(0)
+                    ApiResult.Success(bytes)
+                } else {
+                    // Drain the error stream so the socket can be reused.
+                    conn.readBody(code)
                     ApiResult.HttpError(code)
                 }
             } finally {

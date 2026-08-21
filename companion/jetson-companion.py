@@ -37,8 +37,13 @@
 #        (draw_tracking/box_tracking/centroid_tracking bool,
 #         offset_counting_line int signed (-300..300, BL-83),
 #         counting_line_orientation str "vertical"|"horizontal" (BL-83),
-#         counting_class_ids list[int] subset of model-classes names — BL-82);
+#         counting_class_ids list[int] subset of model-classes names — BL-82,
+#         mask_zones list[{x,y,w,h} normalized rects (BL-88),
+#         draw_mask_zones bool (BL-88));
 #        validated, atomic write.
+#   GET  /api/snapshot        -> camera preview JPEG (image/jpeg, no-store)
+#        served read-only from /files/snapshot.jpg (written by the
+#        countingapp); 404 when absent (BL-88).
 #   GET  /api/classes         -> countable species catalog (BL-82):
 #        {model_version, nc, classes:[{id,name}], default_counting_class,
 #         counting_class_ids} from model-classes.json + the current
@@ -77,7 +82,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 SERVICE_NAME = "jetson-companion"
-SERVICE_VERSION = "7"
+SERVICE_VERSION = "8"
 HOST = "0.0.0.0"
 DEFAULT_PORT = 8090
 # Path on the Jetson HOST to the counting-history JSONL written by the
@@ -780,6 +785,34 @@ def _send_json(handler, status, payload):
     handler.wfile.write(body)
 
 
+def _serve_file_bytes(handler, file_path, content_type, label):
+    """Serve a whole (small) file from disk as raw bytes with the given
+    content type. No Range support (the snapshot JPEG is small). Sends
+    `Cache-Control: no-store` so the app never serves a stale preview.
+    404 JSON when the file is absent or unreadable.
+
+    `label` is a short route tag for logging (e.g. "snapshot").
+    """
+    if not os.path.isfile(file_path):
+        handler._log("GET /api/{} -> 404 (no file)".format(label))
+        _send_json(handler, 404, {"error": "{} not available".format(label)})
+        return
+    try:
+        with open(file_path, "rb") as fh:
+            data = fh.read()
+    except OSError as exc:
+        handler._log("GET /api/{} -> 404 ({})".format(label, exc))
+        _send_json(handler, 404, {"error": "{} not available".format(label)})
+        return
+    handler.send_response(200)
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Content-Length", str(len(data)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+    handler.wfile.write(data)
+    handler._log("GET /api/{} -> 200 ({} bytes)".format(label, len(data)))
+
+
 def _serve_video_file(handler, vid):
     """Serve a compressed counting-<vid>-*.mp4 from FILES_DIR with
     HTTP Range / 206 partial streaming.
@@ -1022,6 +1055,14 @@ def _validate_settings_payload(payload):
       - counting_line_orientation : str "vertical" | "horizontal" (BL-83)
       - counting_class_ids   : list[int] (BL-82), each a valid class id
         (0..nc-1 of model-classes.json when available; else non-negative int)
+      - mask_zones           : list of axis-aligned normalized rects
+        {x,y,w,h} (each a non-bool number in [0..1], w>0, h>0,
+        x+w<=1, y+h<=1; BL-88). Strict reject-all: any invalid rect
+        rejects the whole PUT (no silent clamping), consistent with
+        the offset/orientation rejection in BL-84.
+      - draw_mask_zones      : bool (BL-88), overlays the saved zones
+        on the counting app's display; same strict-bool pattern as
+        draw_tracking.
 
     Returns (ok, errors). `ok` is True when every present key is
     valid; `errors` is a list of human-readable strings (empty when
@@ -1099,6 +1140,78 @@ def _validate_settings_payload(payload):
                     errors.append(
                         "counting_class_ids id {} is out of range "
                         "(valid 0..{})".format(cid, nc - 1))
+                    break
+    if "draw_mask_zones" in payload and not isinstance(
+            payload["draw_mask_zones"], bool):
+        errors.append(
+            "draw_mask_zones must be a boolean, got {}".format(
+                type(payload["draw_mask_zones"]).__name__))
+    if "mask_zones" in payload:
+        val = payload["mask_zones"]
+        if not isinstance(val, list):
+            errors.append(
+                "mask_zones must be a list of objects, got {}".format(
+                    type(val).__name__))
+        else:
+            # Each element must be a dict {x,y,w,h} of non-bool
+            # numbers in [0..1] with w>0, h>0, x+w<=1, y+h<=1.
+            # Strict reject-all: a single invalid rect rejects the
+            # whole PUT (no silent clamping), matching the IPC
+            # contract (BL-87/BL-88) so the companion never accepts
+            # a value the counting app would drop.
+            for i, rect in enumerate(val):
+                if not isinstance(rect, dict):
+                    errors.append(
+                        "mask_zones[{}] must be an object, got {}".format(
+                            i, type(rect).__name__))
+                    break
+                ok_rect = True
+                for field in ("x", "y", "w", "h"):
+                    fv = rect.get(field)
+                    if field not in rect:
+                        errors.append(
+                            "mask_zones[{}] missing field '{}'".format(
+                                i, field))
+                        ok_rect = False
+                        break
+                    # bool is a subclass of int — reject it so
+                    # `true` is not silently accepted as 1.
+                    if isinstance(fv, bool) or not isinstance(fv, (int, float)):
+                        errors.append(
+                            "mask_zones[{}].{} must be a number, got {}".format(
+                                i, field, type(fv).__name__))
+                        ok_rect = False
+                        break
+                    if not (0 <= fv <= 1):
+                        errors.append(
+                            "mask_zones[{}].{} must be in [0, 1], got {}".format(
+                                i, field, fv))
+                        ok_rect = False
+                        break
+                if not ok_rect:
+                    break
+                x, y, w, h = (
+                    float(rect["x"]), float(rect["y"]),
+                    float(rect["w"]), float(rect["h"]))
+                if w <= 0:
+                    errors.append(
+                        "mask_zones[{}].w must be > 0, got {}".format(
+                            i, w))
+                    break
+                if h <= 0:
+                    errors.append(
+                        "mask_zones[{}].h must be > 0, got {}".format(
+                            i, h))
+                    break
+                if x + w > 1:
+                    errors.append(
+                        "mask_zones[{}] x+w must be <= 1, got {}".format(
+                            i, x + w))
+                    break
+                if y + h > 1:
+                    errors.append(
+                        "mask_zones[{}] y+h must be <= 1, got {}".format(
+                            i, y + h))
                     break
     return (len(errors) == 0), errors
 
@@ -1182,6 +1295,22 @@ class CompanionHandler(BaseHTTPRequestHandler):
             }
             self._log("GET /api/identify -> 200")
             _send_json(self, 200, payload)
+            return
+
+        if path == "/api/snapshot":
+            # BL-88: serve the countingapp's periodic camera preview
+            # JPEG (written to /files/snapshot.jpg on the hostPath)
+            # read-only. The app fetches it to draw mask zones on top
+            # of the live frame. 404 when the countingapp has not yet
+            # written a snapshot (app shows "Aperçu pas encore
+            # disponible" + retry). no-store so a stale preview is
+            # never cached by the app or an intermediary.
+            _serve_file_bytes(
+                self,
+                os.path.join(FILES_DIR, "snapshot.jpg"),
+                "image/jpeg",
+                "snapshot",
+            )
             return
 
         if path == "/api/settings":
@@ -1414,7 +1543,9 @@ class CompanionHandler(BaseHTTPRequestHandler):
                        "centroid_tracking",
                        "offset_counting_line",
                        "counting_line_orientation",
-                       "counting_class_ids"):
+                       "counting_class_ids",
+                       "mask_zones",
+                       "draw_mask_zones"):
                 merged[key] = val
 
         # Atomic write: temp file in the same dir, then os.replace

@@ -69,12 +69,13 @@ aligned by BL-80).
 
 #### `GET /api/identify`
 
-**Response** `200` (with the BL-68 history endpoints deployed):
+**Response** `200` (with the BL-88 mask-zone endpoints deployed):
 ```json
-{"service":"jetson-companion","version":"2"}
+{"service":"jetson-companion","version":"8"}
 ```
-Clock-sync-only deployments (pre-BL-68) return `"version":"1"`; the version
-bumps to `"2"` once the read-only history endpoints (below) are deployed.
+The version bumps with each API surface addition: `"1"` (clock-sync only,
+pre-BL-68), `"2"` (BL-68 read-only history/video), `"6"` (BL-76/BL-82 settings
+relay + countable species), `"8"` (BL-88 camera snapshot + mask zones).
 
 Any other path returns `404`:
 ```json
@@ -152,19 +153,43 @@ See the [curl examples](#curl-examples) below and
 
 ### v3 — settings relay & countable species (BL-76, BL-82)
 
-The companion is bumped to **version `"6"`**. These endpoints bridge the
-Android app's Réglages tab to the countingapp via the hostPath `/conf`
-(CONFIG/CONTROL — split from `/files` by BL-79; companion aligned by BL-80).
-`GET/PUT /api/settings` read/write `runtime-settings.json` (hot-reloaded by
-the countingapp at each recording start); `GET /api/classes` exposes the
-read-only `model-classes.json` catalog published by the countingapp at
-startup (BL-78) plus the current `counting_class_ids` selection.
+The companion is bumped to **version `"6"`** (then `"8"` with BL-88 — see
+below). These endpoints bridge the Android app's Réglages tab to the
+countingapp via the hostPath `/conf` (CONFIG/CONTROL — split from `/files` by
+BL-79; companion aligned by BL-80). `GET/PUT /api/settings` read/write
+`runtime-settings.json` (hot-reloaded by the countingapp at each recording
+start); `GET /api/classes` exposes the read-only `model-classes.json` catalog
+published by the countingapp at startup (BL-78) plus the current
+`counting_class_ids` selection.
 
 | Method | Path | Body | Purpose |
 |--------|------|------|---------|
-| `GET` | `/api/settings` | — | Current `runtime-settings.json` (empty `{}` when absent) |
-| `PUT` | `/api/settings` | PATCH JSON | Merge the given keys into `runtime-settings.json` (atomic write); echoes the merged object. Recognised keys: `draw_tracking`, `box_tracking`, `centroid_tracking` (bool), `offset_counting_line` (signed int, loose `-300..300` — BL-84), `counting_line_orientation` (`"vertical"`\|`"horizontal"` — BL-84), `counting_class_ids` (`int[]`, subset of the model classes — BL-82). Unknown keys ignored (forward-compat); 400 on a type/range violation. |
+| `GET` | `/api/settings` | — | Current `runtime-settings.json` (empty `{}` when absent). As of BL-88 it also returns `mask_zones` (default `[]`) and `draw_mask_zones` (default `true`). |
+| `PUT` | `/api/settings` | PATCH JSON | Merge the given keys into `runtime-settings.json` (atomic write); echoes the merged object. Recognised keys: `draw_tracking`, `box_tracking`, `centroid_tracking` (bool), `offset_counting_line` (signed int, loose `-300..300` — BL-84), `counting_line_orientation` (`"vertical"`\|`"horizontal"` — BL-84), `counting_class_ids` (`int[]`, subset of the model classes — BL-82), `mask_zones` (list of `{x,y,w,h}` normalized rects — BL-88), `draw_mask_zones` (bool — BL-88). Unknown keys ignored (forward-compat); 400 on a type/range violation. |
 | `GET` | `/api/classes` | — | Countable species catalog + current selection (BL-82): `{model_version, nc, classes:[{id,name}], default_counting_class, counting_class_ids}`. `404` when the countingapp has not published `model-classes.json` yet (not started / write pending) — the app shows "catalog unavailable" and can retry. |
+
+### v4 — camera snapshot & mask zones (BL-88)
+
+The companion is bumped to **version `"8"`**. The Android app's « Zones de
+masquage » section lets the operator draw rectangles over a camera preview
+and persist them as `mask_zones` in `runtime-settings.json` (the countingapp
+reader is a separate follow-up in the `animal-counter` repo). A new
+read-only endpoint serves the preview JPEG.
+
+| Method | Path | Body | Purpose |
+|--------|------|------|---------|
+| `GET` | `/api/snapshot` | — | Serves the countingapp's periodic camera preview JPEG (`/files/snapshot.jpg` on the hostPath) as `image/jpeg` with `Content-Length` + `Cache-Control: no-store`. `404` JSON when the countingapp has not written a snapshot yet (the app shows « Aperçu pas encore disponible » + retry). |
+
+`mask_zones` is a list of axis-aligned normalized rects `{x,y,w,h} ∈ [0..1]`
+(relative to the frame, resolution-independent). Validation is strict
+reject-all (consistent with BL-84's offset/orientation rejection): any
+invalid rect — `x`/`y`/`w`/`h` out of `[0..1]`, `w<=0`, `h<=0`, `x+w>1`,
+`y+h>1`, a non-dict element, a missing field, a bool field value, or a
+non-list top-level value — rejects the whole `PUT` with `400` + a logged
+`WARN`; the existing `runtime-settings.json` is left unchanged (no silent
+clamping). `draw_mask_zones` is a plain bool (same pattern as
+`draw_tracking`) that toggles whether the countingapp overlays the saved
+zones on the live frame.
 
 `counting_class_ids` is hot-reloaded by the countingapp at the **next
 recording start** (no restart); invalid ids (out of `0..nc-1`) are dropped
@@ -257,7 +282,7 @@ the local WiFi):
 **Identify the service:**
 ```bash
 curl http://192.168.0.180:8090/api/identify
-# {"service":"jetson-companion","version":"2"}
+# {"service":"jetson-companion","version":"8"}
 ```
 
 **Set the clock from the PC's current time** (use `date -Iseconds` so the
@@ -404,6 +429,68 @@ curl -s -o /dev/null -w "%{http_code}\n" \
   -X PUT http://192.168.0.180:8090/api/settings \
   -H 'Content-Type: application/json' \
   -d '{"counting_class_ids":[0,1,9]}'
+# 400
+```
+
+**v4 — camera snapshot & mask zones (BL-88):**
+
+**Fetch the camera preview JPEG (written by the countingapp to
+`/files/snapshot.jpg`):**
+```bash
+curl -D - http://192.168.0.180:8090/api/snapshot -o /tmp/snapshot.jpg
+# HTTP/1.0 200 OK
+# Content-Type: image/jpeg
+# Content-Length: <bytes>
+# Cache-Control: no-store
+```
+`404` when the countingapp has not written a snapshot yet (the writer is a
+separate `animal-counter` follow-up):
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://192.168.0.180:8090/api/snapshot
+# 404
+```
+
+**Read the live runtime settings (BL-88 adds `mask_zones` + `draw_mask_zones`):**
+```bash
+curl http://192.168.0.180:8090/api/settings
+# {"box_tracking":true,"centroid_tracking":false,"draw_tracking":true,
+#  "offset_counting_line":0,"counting_line_orientation":"vertical",
+#  "counting_class_ids":[1],"mask_zones":[],"draw_mask_zones":true}
+```
+
+**Save mask zones (normalized `{x,y,w,h} ∈ [0..1]` rects, hot-reloaded at
+the next recording):**
+```bash
+curl -X PUT http://192.168.0.180:8090/api/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"mask_zones":[{"x":0.8,"y":0,"w":0.2,"h":1}],"draw_mask_zones":true}'
+# 200 — echoes the merged runtime-settings.json (mask_zones persisted)
+```
+
+**Negative test — invalid rect `w<=0` (expect 400, file unchanged):**
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" \
+  -X PUT http://192.168.0.180:8090/api/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"mask_zones":[{"x":0.1,"y":0.1,"w":0,"h":0.5}]}'
+# 400
+```
+
+**Negative test — `x+w>1` (expect 400):**
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" \
+  -X PUT http://192.168.0.180:8090/api/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"mask_zones":[{"x":0.8,"y":0,"w":0.3,"h":1}]}'
+# 400
+```
+
+**Negative test — non-bool `draw_mask_zones` (expect 400):**
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" \
+  -X PUT http://192.168.0.180:8090/api/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"draw_mask_zones":"yes"}'
 # 400
 ```
 

@@ -212,4 +212,19 @@
     <string name="species_empty">No countable species published.</string>
     <string name="species_retry">Retry</string>
     <string name="species_hot_reload_note">Applied at the next recording (hot-reload, no restart).</string>
+
+    <!-- BL-88 — mask zones section in Settings -->
+    <string name="section_mask_zones">Mask zones</string>
+    <string name="mask_capture_preview">Capture preview</string>
+    <string name="mask_snapshot_unavailable">Preview not available yet</string>
+    <string name="mask_snapshot_error">Preview error</string>
+    <string name="mask_snapshot_loading">Retrieving preview…</string>
+    <string name="mask_zone_label">Zone %1$d</string>
+    <string name="mask_draw_overlay_title">Show zones on screen</string>
+    <string name="mask_save">Save</string>
+    <string name="mask_saving">Saving…</string>
+    <string name="mask_saved">Saved ✓</string>
+    <string name="mask_save_error">Save failed</string>
+    <string name="mask_drag_hint">Drag on the preview to draw a mask zone.</string>
+    <string name="mask_empty">No mask zone yet.</string>
 </resources>

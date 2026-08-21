@@ -373,6 +373,24 @@ data class JetsonSettings(
     /** (BL-82) Which class ids the countingapp counts; hot-reloaded at each
      *  recording start. `null` = do not modify (PATCH semantics). */
     val countingClassIds: List<Int>? = null,
+    /** (BL-88) Mask zones (normalized axis-aligned rects `{x,y,w,h} ∈ [0..1]`,
+     *  relative to the frame). `null` = do not modify (PATCH semantics); an
+     *  empty list clears the zones. Seeded from `GET /api/settings` in the
+     *  ViewModel; not cached in DataStore. */
+    val maskZones: List<MaskZone>? = null,
+    /** (BL-88) Whether the countingapp draws the mask zones on screen. `null`
+     *  = do not modify (PATCH semantics); cached in DataStore (default `true`). */
+    val drawMaskZones: Boolean? = null,
+)
+
+/** (BL-88) One normalized axis-aligned mask rectangle `{x,y,w,h} ∈ [0..1]`,
+ *  relative to the camera frame (resolution-independent). The companion
+ *  validates these server-side (strict reject-all on any invalid rect). */
+data class MaskZone(
+    val x: Float,
+    val y: Float,
+    val w: Float,
+    val h: Float,
 )
 
 /** `POST /api/power` response → `{"status":"poweroff_requested"}`. */
@@ -407,6 +425,19 @@ internal fun JetsonSettings.toJson(): JSONObject = JSONObject().also { o ->
     offsetCountingLine?.let { o.put("offset_counting_line", it) }
     countingLineOrientation?.let { o.put("counting_line_orientation", it) }
     countingClassIds?.let { o.put("counting_class_ids", JSONArray(it)) }
+    maskZones?.let {
+        val arr = JSONArray()
+        for (z in it) {
+            arr.put(JSONObject().apply {
+                put("x", z.x.toDouble())
+                put("y", z.y.toDouble())
+                put("w", z.w.toDouble())
+                put("h", z.h.toDouble())
+            })
+        }
+        o.put("mask_zones", arr)
+    }
+    drawMaskZones?.let { o.put("draw_mask_zones", it) }
 }
 
 /** Parse `GET /api/settings` (or the merged echo of `PUT /api/settings`) into
@@ -420,6 +451,8 @@ internal fun parseJetsonSettings(json: String): JetsonSettings {
         offsetCountingLine = o.optIntOrNull("offset_counting_line"),
         countingLineOrientation = o.optStringOrNull("counting_line_orientation"),
         countingClassIds = o.optIntArrayOrNull("counting_class_ids"),
+        maskZones = o.optMaskZonesOrNull("mask_zones"),
+        drawMaskZones = o.optBooleanOrNull("draw_mask_zones"),
     )
 }
 
@@ -463,6 +496,13 @@ internal fun JSONObject.optLongOrNull(key: String): Long? =
 internal fun JSONObject.optDoubleOrNull(key: String): Double? =
     if (has(key) && !isNull(key)) optDouble(key) else null
 
+/** (BL-88) Read a float field defensively; null when absent/`null`/non-numeric. */
+internal fun JSONObject.optFloatOrNull(key: String): Float? {
+    if (!has(key) || isNull(key)) return null
+    val d = optDouble(key, Double.NaN)
+    return if (d.isNaN()) null else d.toFloat()
+}
+
 internal fun JSONObject.optBooleanOrNull(key: String): Boolean? =
     if (has(key) && !isNull(key)) optBoolean(key) else null
 
@@ -477,6 +517,26 @@ internal fun JSONObject.optIntArrayOrNull(key: String): List<Int>? {
         if (arr.isNull(i)) continue
         val v = arr.optInt(i, Int.MIN_VALUE)
         if (v != Int.MIN_VALUE && !arr.optBoolean(i, false)) out.add(v)
+    }
+    return out
+}
+
+/** (BL-88) Read a `mask_zones`-style array of `{x,y,w,h}` objects; null
+ *  when absent/not an array. Each element is parsed defensively: a non-object
+ *  or a rect with a missing/non-numeric field is skipped (the companion
+ *  rejects the whole PUT server-side, but GET is best-effort here). */
+internal fun JSONObject.optMaskZonesOrNull(key: String): List<MaskZone>? {
+    if (!has(key) || isNull(key)) return null
+    val arr = optJSONArray(key) ?: return null
+    val out = ArrayList<MaskZone>(arr.length())
+    for (i in 0 until arr.length()) {
+        if (arr.isNull(i)) continue
+        val z = arr.optJSONObject(i) ?: continue
+        val x = z.optFloatOrNull("x") ?: continue
+        val y = z.optFloatOrNull("y") ?: continue
+        val w = z.optFloatOrNull("w") ?: continue
+        val h = z.optFloatOrNull("h") ?: continue
+        out.add(MaskZone(x = x, y = y, w = w, h = h))
     }
     return out
 }

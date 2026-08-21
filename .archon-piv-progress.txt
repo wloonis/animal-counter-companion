@@ -1,0 +1,13 @@
+Task 1: validate mask_zones + draw_mask_zones in _validate_settings_payload — ee9ed4c
+Task 2: merge mask_zones + draw_mask_zones in PUT, bump version to 8 — fa54091
+Task 2: merge mask_zones + draw_mask_zones in PUT, bump version to 8 — fa54091
+Task 3: GET /api/snapshot + _serve_file_bytes helper — f27f0da
+Task 4: MaskZone model + JetsonSettings mask_zones/draw_mask_zones — 5dbbb2a
+Task 5: JetsonClient.getSnapshot binary transport — 2082b00
+Task 6: JetsonConnectionManager.getSnapshot() binary transport — d030d03
+Task 7: drawMaskZones DataStore Flow + setter — e9f7bec
+Task 8: SettingsViewModel mask-zones/snapshot/save state machines — 8a7b7f8
+Task 9: SettingsScreen mask-zones section (draw overlay + zone list + save) — f43c618
+Task 10: bilingual mask-zones strings (values/ + values-fr/) — f43c618
+Task 11: docs GET /api/snapshot + mask_zones/draw_mask_zones, version 8 — d79d177
+Task 12: mask_zones/draw_mask_zones validation tests + snapshot helper test — d209d88
