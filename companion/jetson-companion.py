@@ -37,8 +37,13 @@
 #        (draw_tracking/box_tracking/centroid_tracking bool,
 #         offset_counting_line int signed (-300..300, BL-83),
 #         counting_line_orientation str "vertical"|"horizontal" (BL-83),
-#         counting_class_ids list[int] subset of model-classes names — BL-82);
+#         counting_class_ids list[int] subset of model-classes names — BL-82,
+#         mask_zones list[{x,y,w,h} normalized rects (BL-88),
+#         draw_mask_zones bool (BL-88));
 #        validated, atomic write.
+#   GET  /api/snapshot        -> camera preview JPEG (image/jpeg, no-store)
+#        served read-only from /files/snapshot.jpg (written by the
+#        countingapp); 404 when absent (BL-88).
 #   GET  /api/classes         -> countable species catalog (BL-82):
 #        {model_version, nc, classes:[{id,name}], default_counting_class,
 #         counting_class_ids} from model-classes.json + the current
@@ -780,6 +785,34 @@ def _send_json(handler, status, payload):
     handler.wfile.write(body)
 
 
+def _serve_file_bytes(handler, file_path, content_type, label):
+    """Serve a whole (small) file from disk as raw bytes with the given
+    content type. No Range support (the snapshot JPEG is small). Sends
+    `Cache-Control: no-store` so the app never serves a stale preview.
+    404 JSON when the file is absent or unreadable.
+
+    `label` is a short route tag for logging (e.g. "snapshot").
+    """
+    if not os.path.isfile(file_path):
+        handler._log("GET /api/{} -> 404 (no file)".format(label))
+        _send_json(handler, 404, {"error": "{} not available".format(label)})
+        return
+    try:
+        with open(file_path, "rb") as fh:
+            data = fh.read()
+    except OSError as exc:
+        handler._log("GET /api/{} -> 404 ({})".format(label, exc))
+        _send_json(handler, 404, {"error": "{} not available".format(label)})
+        return
+    handler.send_response(200)
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Content-Length", str(len(data)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+    handler.wfile.write(data)
+    handler._log("GET /api/{} -> 200 ({} bytes)".format(label, len(data)))
+
+
 def _serve_video_file(handler, vid):
     """Serve a compressed counting-<vid>-*.mp4 from FILES_DIR with
     HTTP Range / 206 partial streaming.
@@ -1262,6 +1295,22 @@ class CompanionHandler(BaseHTTPRequestHandler):
             }
             self._log("GET /api/identify -> 200")
             _send_json(self, 200, payload)
+            return
+
+        if path == "/api/snapshot":
+            # BL-88: serve the countingapp's periodic camera preview
+            # JPEG (written to /files/snapshot.jpg on the hostPath)
+            # read-only. The app fetches it to draw mask zones on top
+            # of the live frame. 404 when the countingapp has not yet
+            # written a snapshot (app shows "Aperçu pas encore
+            # disponible" + retry). no-store so a stale preview is
+            # never cached by the app or an intermediary.
+            _serve_file_bytes(
+                self,
+                os.path.join(FILES_DIR, "snapshot.jpg"),
+                "image/jpeg",
+                "snapshot",
+            )
             return
 
         if path == "/api/settings":
