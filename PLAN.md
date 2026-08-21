@@ -107,7 +107,7 @@ change.
   `saveMaskZones()` (PUT `{mask_zones, draw_mask_zones}`; refresh from echoed
   merged settings on success), and `addMaskZone`/`removeMaskZone`/`updateMaskZone`/
   `setDrawMaskZones` mutators.
-- [ ] Task 9: EDIT `android/app/src/main/java/com/animalcounter/ui/settings/SettingsScreen.kt`
+- [x] Task 9: EDIT `android/app/src/main/java/com/animalcounter/ui/settings/SettingsScreen.kt`
   — add a « Zones de masquage » `Section` (after « Espèces comptées », before
   « À propos »): « Capturer l'aperçu » button → snapshot `Image` (decoded
   `Bitmap` via `asImageBitmap()`) in a fixed-aspect `Box` overlaid with a
@@ -117,7 +117,7 @@ change.
   les zones à l'écran » `Switch` (`draw_mask_zones`); « Enregistrer » button
   with inline `MaskSaveState` feedback; 404 → « Aperçu pas encore disponible » +
   retry; Loading → spinner; Error → error + retry.
-- [ ] Task 10: EDIT `android/app/src/main/res/values/strings.xml` +
+- [x] Task 10: EDIT `android/app/src/main/res/values/strings.xml` +
   `android/app/src/main/res/values-fr/strings.xml` — add bilingual strings:
   `section_mask_zones`, `mask_capture_preview`, `mask_snapshot_unavailable`,
   `mask_snapshot_error`, `mask_snapshot_loading`, `mask_zone_label`,

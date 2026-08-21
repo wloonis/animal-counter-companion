@@ -19,10 +19,15 @@
 
 package com.animalcounter.ui.settings
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,6 +35,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -38,6 +45,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -55,16 +64,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.animalcounter.BuildConfig
 import com.animalcounter.R
 import com.animalcounter.data.OFFSET_SLIDER_MAX
 import com.animalcounter.data.OFFSET_SLIDER_MIN
+import com.animalcounter.net.MaskZone
 import com.animalcounter.ui.common.AppNavIcon
 
 /**
@@ -145,6 +163,10 @@ fun SettingsScreen() {
     val countingLineOrientation by vm.countingLineOrientation.collectAsState()
     val companionVersion by vm.companionVersion.collectAsState()
     val classCatalog by vm.classCatalog.collectAsState()
+    val maskZones by vm.maskZones.collectAsState()
+    val drawMaskZones by vm.drawMaskZones.collectAsState()
+    val snapshot by vm.snapshot.collectAsState()
+    val maskSave by vm.maskSave.collectAsState()
 
     // Confirmation dialog for the destructive Jetson poweroff. Hidden by
     // default; the "Arrêter le Jetson" button opens it; confirming dismisses
@@ -564,6 +586,279 @@ fun SettingsScreen() {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                    }
+                }
+            }
+
+            // ---- 5c. Zones de masquage (BL-88) ----
+            Section(title = stringResource(R.string.section_mask_zones)) {
+                // « Capturer l'aperçu » button — fetches the camera snapshot
+                // (GET /api/snapshot) served by the companion from
+                // /files/snapshot.jpg (written by the countingapp). Disabled
+                // while a fetch is in flight.
+                OutlinedButton(
+                    onClick = vm::refreshSnapshot,
+                    enabled = snapshot !is SettingsViewModel.SnapshotState.Loading,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (snapshot is SettingsViewModel.SnapshotState.Loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.size(8.dp))
+                    }
+                    Text(stringResource(R.string.mask_capture_preview))
+                }
+
+                // Snapshot area + drag-to-draw overlay. The image is shown in
+                // a Box whose aspect ratio matches the bitmap so the image
+                // fills the box exactly (no letterboxing); drag coordinates
+                // are then normalized directly against the box size and clamped
+                // to [0..1] before being added as a mask zone.
+                when (val s = snapshot) {
+                    is SettingsViewModel.SnapshotState.Idle -> {
+                        Text(
+                            text = stringResource(R.string.mask_drag_hint),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    is SettingsViewModel.SnapshotState.Loading -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Text(
+                                text = stringResource(R.string.mask_snapshot_loading),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    is SettingsViewModel.SnapshotState.Unavailable -> {
+                        Text(
+                            text = stringResource(R.string.mask_snapshot_unavailable),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = { vm.refreshSnapshot() }) {
+                            Text(stringResource(R.string.mask_capture_preview))
+                        }
+                    }
+                    is SettingsViewModel.SnapshotState.Error -> {
+                        Text(
+                            text = stringResource(R.string.mask_snapshot_error),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        TextButton(onClick = { vm.refreshSnapshot() }) {
+                            Text(stringResource(R.string.mask_capture_preview))
+                        }
+                    }
+                    is SettingsViewModel.SnapshotState.Loaded -> {
+                        val bmp = s.bitmap
+                        val aspect = if (bmp.height > 0)
+                            bmp.width.toFloat() / bmp.height.toFloat()
+                        else 1f
+                        // Drag state (px, relative to the box).
+                        var boxSize by remember { mutableStateOf(IntSize.Zero) }
+                        var dragStart by remember { mutableStateOf<Offset?>(null) }
+                        var dragCur by remember { mutableStateOf<Offset?>(null) }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(aspect)
+                                .onSizeChanged { boxSize = it }
+                                .pointerInput(Unit) {
+                                    detectDragGestures(
+                                        onDragStart = { offset ->
+                                            dragStart = offset
+                                            dragCur = offset
+                                        },
+                                        onDrag = { change, delta ->
+                                            change.consume()
+                                            dragCur = (dragCur ?: Offset.Zero) + delta
+                                        },
+                                        onDragEnd = {
+                                            val start = dragStart
+                                            val cur = dragCur
+                                            val w = boxSize.width
+                                            val h = boxSize.height
+                                            if (start != null && cur != null && w > 0 && h > 0) {
+                                                val left = minOf(start.x, cur.x)
+                                                    .coerceIn(0f, w.toFloat())
+                                                val right = maxOf(start.x, cur.x)
+                                                    .coerceIn(0f, w.toFloat())
+                                                val top = minOf(start.y, cur.y)
+                                                    .coerceIn(0f, h.toFloat())
+                                                val bottom = maxOf(start.y, cur.y)
+                                                    .coerceIn(0f, h.toFloat())
+                                                val rw = right - left
+                                                val rh = bottom - top
+                                                if (rw > 0f && rh > 0f) {
+                                                    vm.addMaskZone(
+                                                        MaskZone(
+                                                            x = left / w.toFloat(),
+                                                            y = top / h.toFloat(),
+                                                            w = rw / w.toFloat(),
+                                                            h = rh / h.toFloat(),
+                                                        ),
+                                                    )
+                                                }
+                                            }
+                                            dragStart = null
+                                            dragCur = null
+                                        },
+                                        onDragCancel = {
+                                            dragStart = null
+                                            dragCur = null
+                                        },
+                                    )
+                                },
+                        ) {
+                            Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = null,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val cw = size.width
+                                val ch = size.height
+                                // Existing zones (translucent fill + stroke).
+                                maskZones.forEach { z ->
+                                    drawRect(
+                                        color = Color(0x662196F3),
+                                        topLeft = Offset(z.x * cw, z.y * ch),
+                                        size = Size(z.w * cw, z.h * ch),
+                                    )
+                                    drawRect(
+                                        color = Color(0xFF2196F3),
+                                        topLeft = Offset(z.x * cw, z.y * ch),
+                                        size = Size(z.w * cw, z.h * ch),
+                                        style = Stroke(width = 3.dp.toPx()),
+                                    )
+                                }
+                                // In-progress drag rectangle.
+                                val st = dragStart
+                                val cu = dragCur
+                                if (st != null && cu != null) {
+                                    val l = minOf(st.x, cu.x)
+                                    val r = maxOf(st.x, cu.x)
+                                    val t = minOf(st.y, cu.y)
+                                    val b = maxOf(st.y, cu.y)
+                                    drawRect(
+                                        color = Color(0x66FF9800),
+                                        topLeft = Offset(l, t),
+                                        size = Size(r - l, b - t),
+                                    )
+                                    drawRect(
+                                        color = Color(0xFFFF9800),
+                                        topLeft = Offset(l, t),
+                                        size = Size(r - l, b - t),
+                                        style = Stroke(width = 3.dp.toPx()),
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            text = stringResource(R.string.mask_drag_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                // Zone list with a delete affordance per row.
+                if (maskZones.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.mask_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    maskZones.forEachIndexed { index, _ ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.mask_zone_label, index + 1),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            IconButton(onClick = { vm.removeMaskZone(index) }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Delete,
+                                    contentDescription = null,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // « Afficher les zones à l'écran » overlay toggle
+                // (draw_mask_zones).
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = stringResource(R.string.mask_draw_overlay_title),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Switch(
+                        checked = drawMaskZones,
+                        onCheckedChange = vm::setDrawMaskZones,
+                    )
+                }
+
+                // « Enregistrer » button — PUT {mask_zones, draw_mask_zones}.
+                // Disabled while a save is in flight; inline feedback below.
+                Button(
+                    onClick = vm::saveMaskZones,
+                    enabled = maskSave !is SettingsViewModel.MaskSaveState.Saving,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (maskSave is SettingsViewModel.MaskSaveState.Saving) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.size(8.dp))
+                    }
+                    Text(stringResource(R.string.mask_save))
+                }
+                when (maskSave) {
+                    is SettingsViewModel.MaskSaveState.Idle -> { /* no inline status */ }
+                    is SettingsViewModel.MaskSaveState.Saving -> {
+                        Text(
+                            text = stringResource(R.string.mask_saving),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    is SettingsViewModel.MaskSaveState.Saved -> {
+                        Text(
+                            text = stringResource(R.string.mask_saved),
+                            color = Color(0xFF2E7D32),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    is SettingsViewModel.MaskSaveState.Error -> {
+                        Text(
+                            text = stringResource(R.string.mask_save_error),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                     }
                 }
             }
