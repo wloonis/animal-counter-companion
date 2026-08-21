@@ -81,7 +81,7 @@ change.
   serving `os.path.join(FILES_DIR, "snapshot.jpg")` as `image/jpeg` with
   `Content-Length` + `Cache-Control: no-store`; 404 JSON when absent. Add a small
   `_serve_file_bytes` helper (read whole small JPEG; no Range needed).
-- [ ] Task 4: EDIT `android/app/src/main/java/com/animalcounter/net/Models.kt` —
+- [x] Task 4: EDIT `android/app/src/main/java/com/animalcounter/net/Models.kt` —
   add `data class MaskZone(x: Float, y: Float, w: Float, h: Float)`; add
   `maskZones: List<MaskZone>?` and `drawMaskZones: Boolean?` to `JetsonSettings`;
   serialize `mask_zones` as a `JSONArray` of `{x,y,w,h}` objects + `draw_mask_zones`

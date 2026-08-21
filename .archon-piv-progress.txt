@@ -2,3 +2,4 @@ Task 1: validate mask_zones + draw_mask_zones in _validate_settings_payload — 
 Task 2: merge mask_zones + draw_mask_zones in PUT, bump version to 8 — fa54091
 Task 2: merge mask_zones + draw_mask_zones in PUT, bump version to 8 — fa54091
 Task 3: GET /api/snapshot + _serve_file_bytes helper — f27f0da
+Task 4: MaskZone model + JetsonSettings mask_zones/draw_mask_zones — 5dbbb2a
