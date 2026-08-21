@@ -6,3 +6,4 @@ Task 4: MaskZone model + JetsonSettings mask_zones/draw_mask_zones — 5dbbb2a
 Task 5: JetsonClient.getSnapshot binary transport — 2082b00
 Task 6: JetsonConnectionManager.getSnapshot() binary transport — d030d03
 Task 7: drawMaskZones DataStore Flow + setter — e9f7bec
+Task 8: SettingsViewModel mask-zones/snapshot/save state machines — 8a7b7f8

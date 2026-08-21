@@ -98,7 +98,7 @@ change.
 - [x] Task 7: EDIT `android/app/src/main/java/com/animalcounter/data/SettingsRepository.kt`
   — add `drawMaskZones` Flow (default `true`) + `setDrawMaskZones` (DataStore bool,
   mirroring `drawTracking`). `mask_zones` is NOT cached (in-memory in the VM).
-- [ ] Task 8: EDIT `android/app/src/main/java/com/animalcounter/ui/settings/SettingsViewModel.kt`
+- [x] Task 8: EDIT `android/app/src/main/java/com/animalcounter/ui/settings/SettingsViewModel.kt`
   — add `maskZones: StateFlow<List<MaskZone>>` (seeded from `GET /api/settings` in
   `refreshSettingsFromJetson`), `drawMaskZones: StateFlow<Boolean>` (seeded +
   cached), `SnapshotState` sealed (Idle/Loading/Loaded(Bitmap)/Unavailable(404)/Error)
