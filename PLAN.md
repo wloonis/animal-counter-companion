@@ -77,7 +77,7 @@ change.
   `"draw_mask_zones"` to the `do_PUT` recognised-keys merge tuple so they are
   merged into `runtime-settings.json` (atomic write unchanged); bump
   `SERVICE_VERSION` to `"8"`.
-- [ ] Task 3: EDIT `companion/jetson-companion.py` — add `GET /api/snapshot`
+- [x] Task 3: EDIT `companion/jetson-companion.py` — add `GET /api/snapshot`
   serving `os.path.join(FILES_DIR, "snapshot.jpg")` as `image/jpeg` with
   `Content-Length` + `Cache-Control: no-store`; 404 JSON when absent. Add a small
   `_serve_file_bytes` helper (read whole small JPEG; no Range needed).
