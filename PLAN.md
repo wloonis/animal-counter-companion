@@ -73,7 +73,7 @@ change.
   `[0..1]`, `w>0`, `h>0`, `x+w<=1`, `y+h<=1`; any invalid rect → `(False, errors)`)
   and `draw_mask_zones` (bool, same pattern as `draw_tracking`). Strict reject-all,
   no clamping.
-- [ ] Task 2: EDIT `companion/jetson-companion.py` — add `"mask_zones"` and
+- [x] Task 2: EDIT `companion/jetson-companion.py` — add `"mask_zones"` and
   `"draw_mask_zones"` to the `do_PUT` recognised-keys merge tuple so they are
   merged into `runtime-settings.json` (atomic write unchanged); bump
   `SERVICE_VERSION` to `"8"`.
