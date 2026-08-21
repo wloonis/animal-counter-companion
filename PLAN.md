@@ -95,7 +95,7 @@ change.
 - [x] Task 6: EDIT `android/app/src/main/java/com/animalcounter/net/JetsonConnectionManager.kt`
   — add `getSnapshot(): Result<ByteArray>` using `resolveActiveIp()` +
   `activeWifiNetworkSafe()` + `JetsonClient.getSnapshot` (mirrors `getSettings`).
-- [ ] Task 7: EDIT `android/app/src/main/java/com/animalcounter/data/SettingsRepository.kt`
+- [x] Task 7: EDIT `android/app/src/main/java/com/animalcounter/data/SettingsRepository.kt`
   — add `drawMaskZones` Flow (default `true`) + `setDrawMaskZones` (DataStore bool,
   mirroring `drawTracking`). `mask_zones` is NOT cached (in-memory in the VM).
 - [ ] Task 8: EDIT `android/app/src/main/java/com/animalcounter/ui/settings/SettingsViewModel.kt`
