@@ -166,6 +166,14 @@ data class VideoDetail(
     val status: String,
     val countLeftToRight: Int,
     val countRightToLeft: Int,
+    /** (BL-85) Horizontal-line directional counts (0 for vertical-line
+     *  sessions). [countingLineOrientation] tells the UI which pair to show. */
+    val countDownToUp: Int,
+    val countUpToDown: Int,
+    /** (BL-85) Session's counting-line orientation ("vertical" | "horizontal").
+     *  Defaults to "vertical" for pre-BL-83 sessions. Drives which directional
+     *  pair + labels the UI shows. */
+    val countingLineOrientation: String,
     val guardInterventions: JSONObject,   // {event_type: count}
     val trackLost: Int,
     val events: List<CountingEvent>,
@@ -596,6 +604,9 @@ internal fun parseVideoDetail(json: String): VideoDetail {
         status = o.optStringOrNull("status") ?: "unknown",
         countLeftToRight = o.optInt("count_left_to_right", 0),
         countRightToLeft = o.optInt("count_right_to_left", 0),
+        countDownToUp = o.optInt("count_down_to_up", 0),
+        countUpToDown = o.optInt("count_up_to_down", 0),
+        countingLineOrientation = o.optStringOrNull("counting_line_orientation") ?: "vertical",
         guardInterventions = o.optJSONObject("guard_interventions") ?: JSONObject(),
         trackLost = o.optInt("track_lost", 0),
         events = events,

@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 SERVICE_NAME = "jetson-companion"
-SERVICE_VERSION = "7"
+SERVICE_VERSION = "8"
 HOST = "0.0.0.0"
 DEFAULT_PORT = 8090
 # Path on the Jetson HOST to the counting-history JSONL written by the
@@ -633,11 +633,25 @@ class HistoryIndex:
                    if _in_span(e.get("ts"))]
             hbs = [h for h in (sess.get("heartbeats") or [])
                    if _in_span(h.get("ts"))]
-        # Directional counts from "crossed" events (direction LEFT
-        # -> count_left_to_right, RIGHT -> count_right_to_left,
-        # matching counting.py semantics).
+        # BL-85: resolve the session's counting-line orientation from its
+        # session_start metadata (top-level counting_line_orientation key,
+        # persisted per recording by the countingapp). Defaults to "vertical"
+        # for pre-BL-83 sessions / absent / invalid, so old sessions render
+        # with the vertical LEFT/RIGHT labels unchanged.
+        orient = "vertical"
+        if sess is not None:
+            _o = (sess.get("start") or {}).get("counting_line_orientation")
+            if isinstance(_o, str) and _o in ("vertical", "horizontal"):
+                orient = _o
+        # Directional counts from "crossed" events (LEFT ->
+        # count_left_to_right, RIGHT -> count_right_to_left, matching
+        # counting.py semantics).
         count_left = 0
         count_right = 0
+        # BL-85: horizontal-line sessions emit UP (+1, down->up) / DOWN
+        # (-1, up->down); aggregate additively alongside LEFT/RIGHT.
+        count_down_to_up = 0
+        count_up_to_down = 0
         for e in evs:
             if e.get("event_type") == "crossed":
                 d = (e.get("detail") or {}).get("direction")
@@ -645,6 +659,10 @@ class HistoryIndex:
                     count_left += 1
                 elif d == "RIGHT":
                     count_right += 1
+                elif d == "UP":
+                    count_down_to_up += 1
+                elif d == "DOWN":
+                    count_up_to_down += 1
         # Guard interventions by type + track_lost count.
         guard_types = ("reid_suppress", "mirror_suppress",
                        "mirror_guard_enforce", "mirror_candidate",
@@ -722,6 +740,12 @@ class HistoryIndex:
             "status": "running" if running else "ready",
             "count_left_to_right": count_left,
             "count_right_to_left": count_right,
+            # BL-85: horizontal-line directional counts (additive; 0 for
+            # vertical-line sessions). Surfaced with the orientation so the
+            # app picks orientation-aware labels (gauche/droite vs bas/haut).
+            "count_down_to_up": count_down_to_up,
+            "count_up_to_down": count_up_to_down,
+            "counting_line_orientation": orient,
             "guard_interventions": guard_interventions,
             "track_lost": track_lost,
             "events": evs,

@@ -79,6 +79,8 @@
     <string name="detail_net">Comptage net</string>
     <string name="detail_count_ltr">Gauche → Droite</string>
     <string name="detail_count_rtl">Droite → Gauche</string>
+    <string name="detail_count_dtu">Bas → Haut</string>
+    <string name="detail_count_utd">Haut → Bas</string>
     <string name="detail_unique_ids">IDs de trace uniques</string>
     <string name="detail_id_switch">Récup. ID switch</string>
     <string name="detail_max_concurrent">Traces simultanées max</string>
