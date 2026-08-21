@@ -4,3 +4,4 @@ Task 2: merge mask_zones + draw_mask_zones in PUT, bump version to 8 — fa54091
 Task 3: GET /api/snapshot + _serve_file_bytes helper — f27f0da
 Task 4: MaskZone model + JetsonSettings mask_zones/draw_mask_zones — 5dbbb2a
 Task 5: JetsonClient.getSnapshot binary transport — 2082b00
+Task 6: JetsonConnectionManager.getSnapshot() binary transport — d030d03

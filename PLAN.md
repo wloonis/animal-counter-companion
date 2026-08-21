@@ -92,7 +92,7 @@ change.
   `getBytes` transport (mirrors `getJson` but returns `ByteArray`; 200 →
   `Success(bytes)`, non-2xx → `HttpError(code)`, throw → `NetworkError`);
   `Accept: image/jpeg`.
-- [ ] Task 6: EDIT `android/app/src/main/java/com/animalcounter/net/JetsonConnectionManager.kt`
+- [x] Task 6: EDIT `android/app/src/main/java/com/animalcounter/net/JetsonConnectionManager.kt`
   — add `getSnapshot(): Result<ByteArray>` using `resolveActiveIp()` +
   `activeWifiNetworkSafe()` + `JetsonClient.getSnapshot` (mirrors `getSettings`).
 - [ ] Task 7: EDIT `android/app/src/main/java/com/animalcounter/data/SettingsRepository.kt`
