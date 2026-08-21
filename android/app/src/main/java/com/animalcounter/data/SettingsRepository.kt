@@ -62,6 +62,9 @@ const val DEFAULT_BOX_TRACKING: Boolean = true
 /** Default value of the "Trails" sub-toggle. */
 const val DEFAULT_CENTROID_TRACKING: Boolean = true
 
+/** Default value of the "Draw mask zones overlay" toggle (BL-88). */
+const val DEFAULT_DRAW_MASK_ZONES: Boolean = true
+
 /** Default value of the counting-line offset (BL-84: SIGNED, centered at 0).
  *  Range -50..50 (practical UI range; the companion accepts -300..300 and
  *  the counting app clamps the computed line position inside the image with a
@@ -122,6 +125,8 @@ class SettingsRepository(private val context: Context) {
         intPreferencesKey(OFFSET_COUNTING_LINE_KEY)
     private val countingLineOrientationKey =
         stringPreferencesKey(COUNTING_LINE_ORIENTATION_KEY)
+    private val drawMaskZonesKey =
+        booleanPreferencesKey(DRAW_MASK_ZONES_KEY)
 
     /**
      * The manual-override Jetson IP. Emits [DEFAULT_JETSON_IP] when no
@@ -199,6 +204,20 @@ class SettingsRepository(private val context: Context) {
     val countingLineOrientation: Flow<String> =
         context.dataStore.data.map { prefs ->
             prefs[countingLineOrientationKey] ?: DEFAULT_COUNTING_LINE_ORIENTATION
+        }
+
+    /**
+     * Offline cache of the "Draw mask zones overlay" toggle
+     * (`draw_mask_zones`, BL-88). Emits `true` when unset. This is the
+     * last value pushed to the Jetson; the on-device
+     * `runtime-settings.json` is the source of truth at processing time.
+     * `mask_zones` itself is NOT cached here (it is held in-memory in the
+     * settings ViewModel, seeded from `GET /api/settings`, because the
+     * draw UX needs the live snapshot anyway).
+     */
+    val drawMaskZones: Flow<Boolean> =
+        context.dataStore.data.map { prefs ->
+            prefs[drawMaskZonesKey] ?: DEFAULT_DRAW_MASK_ZONES
         }
 
     /**
@@ -324,6 +343,18 @@ class SettingsRepository(private val context: Context) {
     }
 
     /**
+     * Persist [value] as the "Draw mask zones overlay" toggle
+     * (`draw_mask_zones`, BL-88). [value] is the new offline-cached value
+     * (the caller is responsible for pushing it to the Jetson via
+     * `putSettings`).
+     */
+    suspend fun setDrawMaskZones(value: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[drawMaskZonesKey] = value
+        }
+    }
+
+    /**
      * Update the resolved active IP. Intended to be called only by
      * [JetsonConnectionManager][com.animalcounter.net.JetsonConnectionManager];
      * ViewModels read [activeIp].
@@ -344,5 +375,6 @@ class SettingsRepository(private val context: Context) {
         const val CENTROID_TRACKING_KEY = "centroid_tracking"
         const val OFFSET_COUNTING_LINE_KEY = "offset_counting_line"
         const val COUNTING_LINE_ORIENTATION_KEY = "counting_line_orientation"
+        const val DRAW_MASK_ZONES_KEY = "draw_mask_zones"
     }
 }
