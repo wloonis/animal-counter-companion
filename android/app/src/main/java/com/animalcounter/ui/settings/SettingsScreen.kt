@@ -69,6 +69,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -77,6 +79,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.animalcounter.BuildConfig
 import com.animalcounter.R
@@ -110,6 +113,41 @@ import com.animalcounter.ui.common.AppNavIcon
  * All user-facing text is localized via `stringResource(R.string.*)`
  * (no hard-coded strings).
  */
+
+/** Which handle of a mask zone a drag grabbed: [NONE] = draw a new zone,
+ *  [MOVE] = drag inside to translate, [L]/[R]/[T]/[B] = stretch one edge,
+ *  [TL]/[TR]/[BL]/[BR] = stretch a corner (two edges at once). */
+private enum class MaskHandle { NONE, MOVE, L, R, T, B, TL, TR, BL, BR }
+
+/** Hit-test a pointer [offset] (px, relative to the canvas) against a [zone]
+ *  to decide which handle it grabbed. [cw]/[ch] are the canvas size in px.
+ *  Edges are only grabbable when the zone is large enough in that dimension
+ *  (anti-ambiguity for tiny zones); corners win over single edges. */
+private fun hitTestHandle(offset: Offset, z: MaskZone, cw: Float, ch: Float): MaskHandle {
+    val th = 28f
+    val lx = z.x * cw
+    val rx = (z.x + z.w) * cw
+    val ty = z.y * ch
+    val by = (z.y + z.h) * ch
+    val bigW = z.w * cw > th * 2
+    val bigH = z.h * ch > th * 2
+    val nearL = bigW && abs(offset.x - lx) <= th && offset.y in (ty - th)..(by + th)
+    val nearR = bigW && abs(offset.x - rx) <= th && offset.y in (ty - th)..(by + th)
+    val nearT = bigH && abs(offset.y - ty) <= th && offset.x in (lx - th)..(rx + th)
+    val nearB = bigH && abs(offset.y - by) <= th && offset.x in (lx - th)..(rx + th)
+    return when {
+        nearL && nearT -> MaskHandle.TL
+        nearL && nearB -> MaskHandle.BL
+        nearR && nearT -> MaskHandle.TR
+        nearR && nearB -> MaskHandle.BR
+        nearL -> MaskHandle.L
+        nearR -> MaskHandle.R
+        nearT -> MaskHandle.T
+        nearB -> MaskHandle.B
+        offset.x in lx..rx && offset.y in ty..by -> MaskHandle.MOVE
+        else -> MaskHandle.NONE
+    }
+}
 
 /**
  * A reusable settings [Section] — a titled group of controls rendered inside
@@ -670,6 +708,22 @@ fun SettingsScreen() {
                         var boxSize by remember { mutableStateOf(IntSize.Zero) }
                         var dragStart by remember { mutableStateOf<Offset?>(null) }
                         var dragCur by remember { mutableStateOf<Offset?>(null) }
+                        // Index of the zone being moved (null = not moving).
+                        var movingIndex by remember { mutableStateOf<Int?>(null) }
+                        // Zone being resized + which handle (null/NONE = not resizing).
+                        var resizeIndex by remember { mutableStateOf<Int?>(null) }
+                        var resizeHandle by remember { mutableStateOf(MaskHandle.NONE) }
+
+                        // Text paint for the zone name labels drawn on the canvas.
+                        val labelPaint = remember {
+                            android.graphics.Paint().apply {
+                                color = android.graphics.Color.WHITE
+                                textSize = 36f
+                                isAntiAlias = true
+                                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                                setShadowLayer(6f, 1f, 1f, 0xDD000000.toInt())
+                            }
+                        }
 
                         Box(
                             modifier = Modifier
@@ -679,44 +733,114 @@ fun SettingsScreen() {
                                 .pointerInput(Unit) {
                                     detectDragGestures(
                                         onDragStart = { offset ->
-                                            dragStart = offset
-                                            dragCur = offset
+                                            val w = boxSize.width
+                                            val h = boxSize.height
+                                            // Hit-test: grab a resize handle (edge/corner)
+                                            // > move (inside) > draw a new zone (empty).
+                                            var handle = MaskHandle.NONE
+                                            var hitIdx = -1
+                                            if (w > 0 && h > 0) {
+                                                for (i in maskZones.indices.reversed()) {
+                                                    val hd = hitTestHandle(offset, maskZones[i], w.toFloat(), h.toFloat())
+                                                    if (hd != MaskHandle.NONE) { handle = hd; hitIdx = i; break }
+                                                }
+                                            }
+                                            when (handle) {
+                                                MaskHandle.NONE -> {
+                                                    movingIndex = null
+                                                    resizeIndex = null
+                                                    resizeHandle = MaskHandle.NONE
+                                                    dragStart = offset
+                                                    dragCur = offset
+                                                }
+                                                MaskHandle.MOVE -> {
+                                                    movingIndex = hitIdx
+                                                    resizeIndex = null
+                                                    resizeHandle = MaskHandle.NONE
+                                                    dragStart = null
+                                                    dragCur = null
+                                                }
+                                                else -> {
+                                                    movingIndex = null
+                                                    resizeIndex = hitIdx
+                                                    resizeHandle = handle
+                                                    dragStart = null
+                                                    dragCur = null
+                                                }
+                                            }
                                         },
                                         onDrag = { change, delta ->
                                             change.consume()
-                                            dragCur = (dragCur ?: Offset.Zero) + delta
-                                        },
-                                        onDragEnd = {
-                                            val start = dragStart
-                                            val cur = dragCur
                                             val w = boxSize.width
                                             val h = boxSize.height
-                                            if (start != null && cur != null && w > 0 && h > 0) {
-                                                val left = minOf(start.x, cur.x)
-                                                    .coerceIn(0f, w.toFloat())
-                                                val right = maxOf(start.x, cur.x)
-                                                    .coerceIn(0f, w.toFloat())
-                                                val top = minOf(start.y, cur.y)
-                                                    .coerceIn(0f, h.toFloat())
-                                                val bottom = maxOf(start.y, cur.y)
-                                                    .coerceIn(0f, h.toFloat())
-                                                val rw = right - left
-                                                val rh = bottom - top
-                                                if (rw > 0f && rh > 0f) {
-                                                    vm.addMaskZone(
-                                                        MaskZone(
-                                                            x = left / w.toFloat(),
-                                                            y = top / h.toFloat(),
-                                                            w = rw / w.toFloat(),
-                                                            h = rh / h.toFloat(),
-                                                        ),
+                                            if (w > 0 && h > 0) {
+                                                val ri = resizeIndex
+                                                if (ri != null && resizeHandle != MaskHandle.NONE && resizeHandle != MaskHandle.MOVE) {
+                                                    val hd = resizeHandle
+                                                    vm.resizeMaskZone(
+                                                        ri,
+                                                        left = hd == MaskHandle.L || hd == MaskHandle.TL || hd == MaskHandle.BL,
+                                                        right = hd == MaskHandle.R || hd == MaskHandle.TR || hd == MaskHandle.BR,
+                                                        top = hd == MaskHandle.T || hd == MaskHandle.TL || hd == MaskHandle.TR,
+                                                        bottom = hd == MaskHandle.B || hd == MaskHandle.BL || hd == MaskHandle.BR,
+                                                        dxN = delta.x / w.toFloat(),
+                                                        dyN = delta.y / h.toFloat(),
                                                     )
+                                                } else {
+                                                    val mi = movingIndex
+                                                    if (mi != null) {
+                                                        val z = maskZones[mi]
+                                                        vm.moveMaskZone(
+                                                            mi,
+                                                            z.x + delta.x / w.toFloat(),
+                                                            z.y + delta.y / h.toFloat(),
+                                                        )
+                                                    } else {
+                                                        dragCur = (dragCur ?: Offset.Zero) + delta
+                                                    }
                                                 }
                                             }
+                                        },
+                                        onDragEnd = {
+                                            if (movingIndex == null) {
+                                                val start = dragStart
+                                                val cur = dragCur
+                                                val w = boxSize.width
+                                                val h = boxSize.height
+                                                if (start != null && cur != null && w > 0 && h > 0) {
+                                                    val left = minOf(start.x, cur.x)
+                                                        .coerceIn(0f, w.toFloat())
+                                                    val right = maxOf(start.x, cur.x)
+                                                        .coerceIn(0f, w.toFloat())
+                                                    val top = minOf(start.y, cur.y)
+                                                        .coerceIn(0f, h.toFloat())
+                                                    val bottom = maxOf(start.y, cur.y)
+                                                        .coerceIn(0f, h.toFloat())
+                                                    val rw = right - left
+                                                    val rh = bottom - top
+                                                    if (rw > 0f && rh > 0f) {
+                                                        vm.addMaskZone(
+                                                            MaskZone(
+                                                                x = left / w.toFloat(),
+                                                                y = top / h.toFloat(),
+                                                                w = rw / w.toFloat(),
+                                                                h = rh / h.toFloat(),
+                                                                name = "Zone ${maskZones.size + 1}",
+                                                            ),
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            movingIndex = null
+                                            resizeIndex = null
+                                            resizeHandle = MaskHandle.NONE
                                             dragStart = null
                                             dragCur = null
                                         },
                                         onDragCancel = {
+                                            movingIndex = null
+                                            resizeIndex = null
+                                            resizeHandle = MaskHandle.NONE
                                             dragStart = null
                                             dragCur = null
                                         },
@@ -746,25 +870,64 @@ fun SettingsScreen() {
                                         style = Stroke(width = 3.dp.toPx()),
                                     )
                                 }
-                                // In-progress drag rectangle.
-                                val st = dragStart
-                                val cu = dragCur
-                                if (st != null && cu != null) {
-                                    val l = minOf(st.x, cu.x)
-                                    val r = maxOf(st.x, cu.x)
-                                    val t = minOf(st.y, cu.y)
-                                    val b = maxOf(st.y, cu.y)
-                                    drawRect(
-                                        color = Color(0x66FF9800),
-                                        topLeft = Offset(l, t),
-                                        size = Size(r - l, b - t),
+                                // Resize handles (4 corners) — visual affordance
+                                // that a zone can be stretched by its edges/corners.
+                                val hs = 9.dp.toPx()
+                                maskZones.forEach { z ->
+                                    val corners = listOf(
+                                        Offset(z.x * cw, z.y * ch),
+                                        Offset((z.x + z.w) * cw, z.y * ch),
+                                        Offset(z.x * cw, (z.y + z.h) * ch),
+                                        Offset((z.x + z.w) * cw, (z.y + z.h) * ch),
                                     )
-                                    drawRect(
-                                        color = Color(0xFFFF9800),
-                                        topLeft = Offset(l, t),
-                                        size = Size(r - l, b - t),
-                                        style = Stroke(width = 3.dp.toPx()),
-                                    )
+                                    corners.forEach { c ->
+                                        drawRect(
+                                            color = Color.White,
+                                            topLeft = Offset(c.x - hs / 2, c.y - hs / 2),
+                                            size = Size(hs, hs),
+                                        )
+                                        drawRect(
+                                            color = Color(0xFF2196F3),
+                                            topLeft = Offset(c.x - hs / 2, c.y - hs / 2),
+                                            size = Size(hs, hs),
+                                            style = Stroke(width = 1.5.dp.toPx()),
+                                        )
+                                    }
+                                }
+                                // In-progress drag rectangle (create only — not
+                                // shown while moving/resizing an existing zone).
+                                if (movingIndex == null && resizeIndex == null) {
+                                    val st = dragStart
+                                    val cu = dragCur
+                                    if (st != null && cu != null) {
+                                        val l = minOf(st.x, cu.x)
+                                        val r = maxOf(st.x, cu.x)
+                                        val t = minOf(st.y, cu.y)
+                                        val b = maxOf(st.y, cu.y)
+                                        drawRect(
+                                            color = Color(0x66FF9800),
+                                            topLeft = Offset(l, t),
+                                            size = Size(r - l, b - t),
+                                        )
+                                        drawRect(
+                                            color = Color(0xFFFF9800),
+                                            topLeft = Offset(l, t),
+                                            size = Size(r - l, b - t),
+                                            style = Stroke(width = 3.dp.toPx()),
+                                        )
+                                    }
+                                }
+                                // Name labels (zone name, or "Zone N" fallback).
+                                drawIntoCanvas { canvas ->
+                                    maskZones.forEachIndexed { i, z ->
+                                        val label = z.name.ifBlank { "Zone ${i + 1}" }
+                                        canvas.nativeCanvas.drawText(
+                                            label,
+                                            z.x * cw + 6f,
+                                            z.y * ch + 30f,
+                                            labelPaint,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -784,15 +947,20 @@ fun SettingsScreen() {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
-                    maskZones.forEachIndexed { index, _ ->
+                    maskZones.forEachIndexed { index, z ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Text(
-                                text = stringResource(R.string.mask_zone_label, index + 1),
-                                style = MaterialTheme.typography.bodyLarge,
+                            OutlinedTextField(
+                                value = z.name,
+                                onValueChange = { vm.renameMaskZone(index, it) },
+                                placeholder = {
+                                    Text(stringResource(R.string.mask_zone_label, index + 1))
+                                },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
                             )
                             IconButton(onClick = { vm.removeMaskZone(index) }) {
                                 Icon(

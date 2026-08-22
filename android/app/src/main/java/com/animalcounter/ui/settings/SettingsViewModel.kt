@@ -513,6 +513,70 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         if (index !in current.indices) return
         _maskZones.value = current.toMutableList().apply { this[index] = zone }
     }
+    /** Rename an existing mask zone (app-local label). */
+    fun renameMaskZone(index: Int, name: String) {
+        val current = _maskZones.value
+        if (index !in current.indices) return
+        _maskZones.value = current.toMutableList().apply {
+            this[index] = this[index].copy(name = name)
+        }
+    }
+    /** Move an existing mask zone to a new top-left (x, y) in normalized
+     *  [0..1] coords, clamped so the whole rect stays inside the frame. */
+    fun moveMaskZone(index: Int, x: Float, y: Float) {
+        val current = _maskZones.value
+        if (index !in current.indices) return
+        val z = current[index]
+        val nx = x.coerceIn(0f, (1f - z.w).coerceAtLeast(0f))
+        val ny = y.coerceIn(0f, (1f - z.h).coerceAtLeast(0f))
+        _maskZones.value = current.toMutableList().apply {
+            this[index] = this[index].copy(x = nx, y = ny)
+        }
+    }
+    /** Resize an existing mask zone by dragging one or more edges. The flags
+     *  select which edges move (left/right/top/bottom); `dxN`/`dyN` are the
+     *  incremental normalized deltas. Clamped to keep the rect inside [0..1]
+     *  with a minimum size (anti-collapse). */
+    fun resizeMaskZone(
+        index: Int,
+        left: Boolean,
+        right: Boolean,
+        top: Boolean,
+        bottom: Boolean,
+        dxN: Float,
+        dyN: Float,
+    ) {
+        val current = _maskZones.value
+        if (index !in current.indices) return
+        val z = current[index]
+        val min = 0.02f
+        // Work in edges: the dragged edge moves; the opposite edge stays fixed.
+        // This avoids the coerceIn(min, max) crash when a drag overflows the
+        // frame (a size-first clamp could make 1f - size negative → empty
+        // range → IllegalArgumentException).
+        var l = z.x
+        var r = z.x + z.w
+        var t = z.y
+        var b = z.y + z.h
+        if (left)   l = z.x + dxN
+        if (right)  r = (z.x + z.w) + dxN
+        if (top)    t = z.y + dyN
+        if (bottom) b = (z.y + z.h) + dyN
+        // Clamp each dragged edge to the frame, preserving the min size (the
+        // opposite edge is the anchor). Bounds are guarded so the coerceIn
+        // range is never empty (upper >= 0, lower <= 1).
+        if (left)   l = l.coerceIn(0f, (r - min).coerceAtLeast(0f))
+        if (right)  r = r.coerceIn((l + min).coerceAtMost(1f), 1f)
+        if (top)    t = t.coerceIn(0f, (b - min).coerceAtLeast(0f))
+        if (bottom) b = b.coerceIn((t + min).coerceAtMost(1f), 1f)
+        val nx = l
+        val ny = t
+        val nw = (r - l).coerceIn(min, 1f)
+        val nh = (b - t).coerceIn(min, 1f)
+        _maskZones.value = current.toMutableList().apply {
+            this[index] = this[index].copy(x = nx, y = ny, w = nw, h = nh)
+        }
+    }
 
     /**
      * (BL-88) Toggle whether the countingapp draws the mask zones on screen
