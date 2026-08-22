@@ -165,7 +165,7 @@ published by the countingapp at startup (BL-78) plus the current
 | Method | Path | Body | Purpose |
 |--------|------|------|---------|
 | `GET` | `/api/settings` | — | Current `runtime-settings.json` (empty `{}` when absent). As of BL-88 it also returns `mask_zones` (default `[]`) and `draw_mask_zones` (default `true`). |
-| `PUT` | `/api/settings` | PATCH JSON | Merge the given keys into `runtime-settings.json` (atomic write); echoes the merged object. Recognised keys: `draw_tracking`, `box_tracking`, `centroid_tracking` (bool), `offset_counting_line` (signed int, loose `-300..300` — BL-84), `counting_line_orientation` (`"vertical"`\|`"horizontal"` — BL-84), `counting_class_ids` (`int[]`, subset of the model classes — BL-82), `mask_zones` (list of `{x,y,w,h}` normalized rects — BL-88), `draw_mask_zones` (bool — BL-88). Unknown keys ignored (forward-compat); 400 on a type/range violation. |
+| `PUT` | `/api/settings` | PATCH JSON | Merge the given keys into `runtime-settings.json` (atomic write); echoes the merged object. Recognised keys: `draw_tracking`, `box_tracking`, `centroid_tracking` (bool), `offset_counting_line` (signed int, loose `-300..300` — BL-84), `counting_line_orientation` (`"vertical"`\|`"horizontal"` — BL-84), `counting_class_ids` (`int[]`, subset of the model classes — BL-82), `mask_zones` (list of `{x,y,w,h}` normalized rects, optional `name` string — BL-88), `draw_mask_zones` (bool — BL-88). Unknown keys ignored (forward-compat); 400 on a type/range violation. |
 | `GET` | `/api/classes` | — | Countable species catalog + current selection (BL-82): `{model_version, nc, classes:[{id,name}], default_counting_class, counting_class_ids}`. `404` when the countingapp has not published `model-classes.json` yet (not started / write pending) — the app shows "catalog unavailable" and can retry. |
 
 ### v4 — camera snapshot & mask zones (BL-88)
@@ -187,9 +187,11 @@ invalid rect — `x`/`y`/`w`/`h` out of `[0..1]`, `w<=0`, `h<=0`, `x+w>1`,
 `y+h>1`, a non-dict element, a missing field, a bool field value, or a
 non-list top-level value — rejects the whole `PUT` with `400` + a logged
 `WARN`; the existing `runtime-settings.json` is left unchanged (no silent
-clamping). `draw_mask_zones` is a plain bool (same pattern as
-`draw_tracking`) that toggles whether the countingapp overlays the saved
-zones on the live frame.
+clamping). Each rect may also carry an optional **`name`** string (app-local
+label set by the Android mask-zones editor; the companion stores + returns it
+via the generic merge, the countingapp ignores it — reads only `x/y/w/h`).
+`draw_mask_zones` is a plain bool (same pattern as `draw_tracking`) that
+toggles whether the countingapp overlays the saved zones on the live frame.
 
 `counting_class_ids` is hot-reloaded by the countingapp at the **next
 recording start** (no restart); invalid ids (out of `0..nc-1`) are dropped

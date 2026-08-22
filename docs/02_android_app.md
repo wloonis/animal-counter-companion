@@ -50,6 +50,63 @@ not an automatic push.
 - **Material 3** dynamic color (Material You) + dark theme forced. Custom
   launcher icon (`animal_counter_v2.png` raster foreground at 72% in the safe
   zone, teal `#FF00897B` background; PR #80/#84). App name « Animal Counter ».
+- **Mask zones editor (BL-88)** — in the **Settings** tab, « Zones de
+  masquage » lets you capture the live camera snapshot, then **draw / move /
+  resize / name** exclusion zones directly on the preview (see
+  [Mask zones editor](#mask-zones-editor-bl-88) below). Saved via
+  `PUT /api/settings {mask_zones, draw_mask_zones}`.
+- **Network-change resilience (PR #22)** — when the phone leaves a WiFi
+  network the cached Jetson IP is cleared so the next call re-probes, and
+  `PUT`/`GET` retry once on a network error. Fixes the mask-zones save
+  silently failing when switching from the home WiFi (192.168.0.180) to the
+  Jetson hotspot (192.168.100.1) — the cached home IP stayed stale.
+
+---
+
+## Mask zones editor (BL-88)
+
+The **Settings → Zones de masquage** section is a visual editor for the
+`mask_zones` exclusion rects (see [`IPC_CONTRACT.md`](./IPC_CONTRACT.md)). It
+lets you define **where the countingapp should NOT count** (e.g. a door, a
+feeder, a corridor) — detections whose centroid falls inside a zone are
+dropped before tracking (no track → no count).
+
+### Workflow
+
+1. **Capturer l'aperçu** — fetches the live camera snapshot (`GET
+   /api/snapshot`, served by the companion from `/files/snapshot.jpg`, written
+   by the countingapp every ~5s). The preview fills its box at the frame's
+   aspect ratio (no letterboxing), so drag coordinates map directly to
+   normalized `[0..1]`.
+2. **Draw a new zone** — drag on an **empty area** of the preview → creates a
+   normalized rect `{x,y,w,h}` (clamped to `[0..1]`), auto-named `Zone N`.
+3. **Move a zone** — drag **inside** an existing zone → translates it (clamped
+   so the whole rect stays in the frame).
+4. **Resize a zone** — drag an **edge** (top/bottom/left/right) or a
+   **corner** → stretches it; the opposite edge stays anchored, with a 2%
+   minimum size (anti-collapse) + frame bounds. 4 corner handles are drawn as a
+   visual affordance.
+5. **Name a zone** — each zone has an editable name field
+   (`OutlinedTextField`) in the list; the name is drawn as a label on the rect
+   in the preview (the name, or `Zone N` fallback). The name is **app-local**:
+   stored in `/conf` + returned on `GET /api/settings`; the countingapp
+   ignores it (reads only `x/y/w/h`).
+6. **Enregistrer** — `PUT /api/settings {mask_zones, draw_mask_zones}`.
+   Strict reject-all on any invalid rect (companion returns `400` with a
+   human-readable message; the whole array is rejected, no silent clamping).
+7. **Afficher les zones à l'écran** — `draw_mask_zones` toggle: the countingapp
+   draws the zones as a semi-transparent overlay (independent of
+   `draw_tracking`).
+
+The hit-test priority is **resize handle (edge/corner) → move (inside) →
+create (empty)**. Edges are grabbable within a 28px threshold, and only when
+the zone is larger than 2× the threshold in that dimension (anti-ambiguity for
+tiny zones); corners win over single edges.
+
+The countingapp **hot-reloads** `mask_zones` (BL-86 idle-gating): the watcher
+stores the pending value and applies it at the next idle window — **no pod
+restart**. A `mask_zones` change does **not** reset the running counter (it
+changes *where* we count, not *what*).
 
 ---
 
