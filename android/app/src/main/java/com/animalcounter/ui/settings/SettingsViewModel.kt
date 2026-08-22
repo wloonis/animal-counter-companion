@@ -533,6 +533,49 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             this[index] = this[index].copy(x = nx, y = ny)
         }
     }
+    /** Resize an existing mask zone by dragging one or more edges. The flags
+     *  select which edges move (left/right/top/bottom); `dxN`/`dyN` are the
+     *  incremental normalized deltas. Clamped to keep the rect inside [0..1]
+     *  with a minimum size (anti-collapse). */
+    fun resizeMaskZone(
+        index: Int,
+        left: Boolean,
+        right: Boolean,
+        top: Boolean,
+        bottom: Boolean,
+        dxN: Float,
+        dyN: Float,
+    ) {
+        val current = _maskZones.value
+        if (index !in current.indices) return
+        val z = current[index]
+        var nx = z.x
+        var ny = z.y
+        var nw = z.w
+        var nh = z.h
+        if (left)   { nx = z.x + dxN; nw = z.w - dxN }
+        if (right)  { nw = z.w + dxN }
+        if (top)    { ny = z.y + dyN; nh = z.h - dyN }
+        if (bottom) { nh = z.h + dyN }
+        val min = 0.02f
+        // Enforce a minimum size, keeping the non-dragged edge fixed.
+        if (nw < min) {
+            if (left) nx = z.x + z.w - min
+            nw = min
+        }
+        if (nh < min) {
+            if (top) ny = z.y + z.h - min
+            nh = min
+        }
+        // Clamp inside the frame (position first, then size).
+        nx = nx.coerceIn(0f, 1f - nw)
+        ny = ny.coerceIn(0f, 1f - nh)
+        nw = nw.coerceIn(min, 1f - nx)
+        nh = nh.coerceIn(min, 1f - ny)
+        _maskZones.value = current.toMutableList().apply {
+            this[index] = this[index].copy(x = nx, y = ny, w = nw, h = nh)
+        }
+    }
 
     /**
      * (BL-88) Toggle whether the countingapp draws the mask zones on screen
