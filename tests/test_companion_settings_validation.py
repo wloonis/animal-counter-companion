@@ -207,6 +207,16 @@ def test_mask_zones_full_frame_ok():
     assert ok and errs == [], errs
 
 
+def test_mask_zones_rect_with_name_ok():
+    # `name` is an additive app-local label (Android UI). The companion must
+    # accept it (unknown-key tolerant) and only validate x/y/w/h; the
+    # countingapp ignores `name` (reads only x/y/w/h).
+    ok, errs = validate({
+        "mask_zones": [{"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4, "name": "Porte"}]
+    })
+    assert ok and errs == [], errs
+
+
 def test_mask_zones_non_list_rejected():
     ok, errs = validate({"mask_zones": {"x": 0, "y": 0, "w": 1, "h": 1}})
     assert not ok

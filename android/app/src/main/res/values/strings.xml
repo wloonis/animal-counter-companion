@@ -225,6 +225,6 @@
     <string name="mask_saving">Saving…</string>
     <string name="mask_saved">Saved ✓</string>
     <string name="mask_save_error">Save failed</string>
-    <string name="mask_drag_hint">Drag on the preview to draw a mask zone.</string>
+    <string name="mask_drag_hint">Drag on an empty area to draw a new zone, or drag an existing zone to move it.</string>
     <string name="mask_empty">No mask zone yet.</string>
 </resources>

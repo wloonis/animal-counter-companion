@@ -225,6 +225,6 @@
     <string name="mask_saving">Enregistrement…</string>
     <string name="mask_saved">Enregistré ✓</string>
     <string name="mask_save_error">Échec de l\'enregistrement</string>
-    <string name="mask_drag_hint">Glisser sur l\'aperçu pour tracer une zone de masquage.</string>
+    <string name="mask_drag_hint">Glisser sur une zone vide pour tracer une nouvelle zone, ou glisser une zone existante pour la déplacer.</string>
     <string name="mask_empty">Aucune zone de masquage.</string>
 </resources>

@@ -391,6 +391,10 @@ data class MaskZone(
     val y: Float,
     val w: Float,
     val h: Float,
+    /** Optional human-readable label (app-local; the countingapp ignores
+     *  this field — it only reads x/y/w/h). Round-tripped through the
+     *  companion (stored in /conf, returned on GET /api/settings). */
+    val name: String = "",
 )
 
 /** `POST /api/power` response → `{"status":"poweroff_requested"}`. */
@@ -433,6 +437,7 @@ internal fun JetsonSettings.toJson(): JSONObject = JSONObject().also { o ->
                 put("y", z.y.toDouble())
                 put("w", z.w.toDouble())
                 put("h", z.h.toDouble())
+                if (z.name.isNotBlank()) put("name", z.name)
             })
         }
         o.put("mask_zones", arr)
@@ -536,7 +541,8 @@ internal fun JSONObject.optMaskZonesOrNull(key: String): List<MaskZone>? {
         val y = z.optFloatOrNull("y") ?: continue
         val w = z.optFloatOrNull("w") ?: continue
         val h = z.optFloatOrNull("h") ?: continue
-        out.add(MaskZone(x = x, y = y, w = w, h = h))
+        val name = z.optStringOrNull("name") ?: ""
+        out.add(MaskZone(x = x, y = y, w = w, h = h, name = name))
     }
     return out
 }

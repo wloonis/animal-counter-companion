@@ -513,6 +513,26 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         if (index !in current.indices) return
         _maskZones.value = current.toMutableList().apply { this[index] = zone }
     }
+    /** Rename an existing mask zone (app-local label). */
+    fun renameMaskZone(index: Int, name: String) {
+        val current = _maskZones.value
+        if (index !in current.indices) return
+        _maskZones.value = current.toMutableList().apply {
+            this[index] = this[index].copy(name = name)
+        }
+    }
+    /** Move an existing mask zone to a new top-left (x, y) in normalized
+     *  [0..1] coords, clamped so the whole rect stays inside the frame. */
+    fun moveMaskZone(index: Int, x: Float, y: Float) {
+        val current = _maskZones.value
+        if (index !in current.indices) return
+        val z = current[index]
+        val nx = x.coerceIn(0f, 1f - z.w)
+        val ny = y.coerceIn(0f, 1f - z.h)
+        _maskZones.value = current.toMutableList().apply {
+            this[index] = this[index].copy(x = nx, y = ny)
+        }
+    }
 
     /**
      * (BL-88) Toggle whether the countingapp draws the mask zones on screen
