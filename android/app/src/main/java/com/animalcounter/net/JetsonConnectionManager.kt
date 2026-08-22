@@ -353,9 +353,18 @@ object JetsonConnectionManager {
      *   throws.
      */
     suspend fun getSnapshot(): Result<ByteArray> {
-        val ip = resolveActiveIp() ?: return Result.failure(IllegalStateException("Jetson introuvable"))
-        val network = activeWifiNetworkSafe()
-        return when (val res = JetsonClient.getSnapshot(ip = ip, network = network)) {
+        var ip = resolveActiveIp() ?: return Result.failure(IllegalStateException("Jetson introuvable"))
+        var network = activeWifiNetworkSafe()
+        var res = JetsonClient.getSnapshot(ip = ip, network = network)
+        // BL-88 hotspot fix: same stale-IP recovery as putSettings — on a network
+        // error, force a fresh probe + retry once.
+        if (res is ApiResult.NetworkError) {
+            repo?.setActiveIp("")
+            ip = resolveActiveIp() ?: return Result.failure(IllegalStateException(res.message))
+            network = activeWifiNetworkSafe()
+            res = JetsonClient.getSnapshot(ip = ip, network = network)
+        }
+        return when (res) {
             is ApiResult.Success -> Result.success(res.data)
             is ApiResult.HttpError -> Result.failure(IllegalStateException("HTTP ${res.code}"))
             is ApiResult.NetworkError -> Result.failure(IllegalStateException(res.message))
@@ -388,9 +397,22 @@ object JetsonConnectionManager {
      *   or network error). Never throws.
      */
     suspend fun putSettings(settings: JetsonSettings): Result<JetsonSettings> {
-        val ip = resolveActiveIp() ?: return Result.failure(IllegalStateException("Jetson introuvable"))
-        val network = activeWifiNetworkSafe()
-        return when (val res = JetsonClient.putSettings(ip = ip, body = settings, network = network)) {
+        var ip = resolveActiveIp() ?: return Result.failure(IllegalStateException("Jetson introuvable"))
+        var network = activeWifiNetworkSafe()
+        var res = JetsonClient.putSettings(ip = ip, body = settings, network = network)
+        // BL-88 hotspot fix: a WiFi switch can leave the cached activeIp pointing
+        // at the old network (home 192.168.0.180 while now on the Jetson hotspot
+        // 192.168.100.1). onLost clears the cache, but a missed onAvailable or a
+        // failed rescan can leave it stale. On a network error, force a fresh
+        // probe + retry once (HTTP errors are NOT retried — a 400 is a real
+        // validation failure, not a reachability issue).
+        if (res is ApiResult.NetworkError) {
+            repo?.setActiveIp("")
+            ip = resolveActiveIp() ?: return Result.failure(IllegalStateException(res.message))
+            network = activeWifiNetworkSafe()
+            res = JetsonClient.putSettings(ip = ip, body = settings, network = network)
+        }
+        return when (res) {
             is ApiResult.Success -> Result.success(res.data)
             is ApiResult.HttpError -> Result.failure(IllegalStateException("HTTP ${res.code}"))
             is ApiResult.NetworkError -> Result.failure(IllegalStateException(res.message))
@@ -427,6 +449,12 @@ object JetsonConnectionManager {
                 onWifi = false
                 SyncLog.setConnected(false)
                 _probeState.value = ProbeState.OutOfRange
+                // BL-88 hotspot fix: clear the cached activeIp so the next call
+                // re-probes. Without this, switching from home WiFi (192.168.0.180)
+                // to the Jetson hotspot (192.168.100.1) can leave the stale home IP
+                // cached if onAvailable's rescan misses or fails → PUT/GET hit the
+                // unreachable home IP → silent save failure on the hotspot.
+                scope?.launch { repo?.setActiveIp("") }
                 SyncLog.add(
                     SyncEvent(
                         timestamp = Instant.now(),
