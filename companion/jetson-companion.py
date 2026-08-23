@@ -1011,6 +1011,106 @@ def _load_model_classes():
         return None
 
 
+# BL-89: per-model (scene/camera/model-specific) vs global (user pref) runtime
+# settings keys. Per-model keys live under runtime-settings.json `models.<name>`;
+# global keys at the top level. The companion routes PUT keys accordingly and
+# serves a flat resolved view (global + active model's per-model) on GET so
+# the Android app's API stays flat.
+_PER_MODEL_SETTINGS_KEYS = (
+    "counting_class_ids",
+    "counting_line_orientation",
+    "offset_counting_line",
+    "mask_zones",
+)
+_GLOBAL_SETTINGS_KEYS = (
+    "draw_tracking",
+    "box_tracking",
+    "centroid_tracking",
+    "draw_mask_zones",
+)
+
+
+def _active_model_name():
+    """Best-effort read of the active model_name from model-classes.json (BL-89).
+
+    Returns the model_name string, or None when the catalog is absent or has
+    no model_name (legacy pre-BL-89 deploy). Used to route per-model settings.
+    """
+    mc = _load_model_classes()
+    if mc and isinstance(mc.get("model_name"), str) and mc["model_name"]:
+        return mc["model_name"]
+    return None
+
+
+def _resolve_settings_flat(data, model_name):
+    """Return a flat settings dict: global keys + the active model's per-model
+    keys + `model_name` (BL-89).
+
+    Mirrors the countingapp's state.py::load_runtime_settings so the companion
+    reports the SAME settings the countingapp will apply. When `data` has a
+    `models` section + the active model has an entry, per-model keys come from
+    there; otherwise (legacy flat, or active model absent) per-model keys come
+    from the top level (backward compat — pre-BL-89 files keep working until
+    the first PUT migrates them to `models.<active>`).
+    """
+    if not isinstance(data, dict):
+        data = {}
+    flat = {k: data[k] for k in _GLOBAL_SETTINGS_KEYS if k in data}
+    models = data.get("models")
+    if isinstance(models, dict) and models and model_name and isinstance(
+            models.get(model_name), dict):
+        pm = models[model_name]
+        flat.update({k: pm[k] for k in _PER_MODEL_SETTINGS_KEYS if k in pm})
+    else:
+        # legacy flat layout (no models, or active model absent): per-model
+        # keys from the top level (pre-BL-89 behavior).
+        flat.update({k: data[k] for k in _PER_MODEL_SETTINGS_KEYS if k in data})
+    if model_name:
+        flat["model_name"] = model_name
+    return flat
+
+
+def _merge_settings_per_model(data, body, model_name):
+    """Merge a flat PUT body into the settings dict with per-model routing.
+
+    Global keys go to the top level. Per-model keys go to `models.<active>`;
+    on the first per-model PUT of a legacy flat file, the existing flat
+    per-model keys are migrated into `models.<active>` (and stripped from the
+    top level) so the nested layout takes over cleanly. When no active
+    model_name is known (no model-classes.json), per-model keys fall back to
+    the top level (legacy behavior). Returns the mutated `data`.
+    """
+    if not isinstance(data, dict):
+        data = {}
+    # Global keys go to the top level.
+    for k in _GLOBAL_SETTINGS_KEYS:
+        if k in body:
+            data[k] = body[k]
+    # Per-model keys go to models.<active> (with one-time migration).
+    pm_body = {k: body[k] for k in _PER_MODEL_SETTINGS_KEYS if k in body}
+    if not pm_body:
+        return data
+    if not model_name:
+        # No active model known — legacy flat top-level write.
+        data.update(pm_body)
+        return data
+    models = data.get("models")
+    if not isinstance(models, dict):
+        # Migration: legacy flat file — nest the existing top-level per-model
+        # keys under the active model, then strip them from the top level.
+        legacy = {k: data[k] for k in _PER_MODEL_SETTINGS_KEYS if k in data}
+        for k in _PER_MODEL_SETTINGS_KEYS:
+            data.pop(k, None)
+        models = {model_name: legacy} if legacy else {}
+        data["models"] = models
+    pm = models.get(model_name)
+    if not isinstance(pm, dict):
+        pm = {}
+        models[model_name] = pm
+    pm.update(pm_body)
+    return data
+
+
 def _resolve_counting_class_ids(settings, model_classes):
     """Resolve the effective counting_class_ids (BL-82).
 
@@ -1315,10 +1415,14 @@ class CompanionHandler(BaseHTTPRequestHandler):
 
         if path == "/api/settings":
             # Hot-path runtime toggles shared with the counting
-            # app via the hostPath /files volume. Always returns an
+            # app via the hostPath /conf volume. Always returns an
             # object — empty {} when no file has been written yet
-            # (normal at boot; the app falls back to os.getenv).
-            payload = _load_runtime_settings()
+            # (normal at boot; the app falls back to os.getenv). BL-89:
+            # returns a FLAT resolved view (global + active model's
+            # per-model keys + `model_name`) so the Android app's API
+            # stays flat while storage is per-model.
+            payload = _resolve_settings_flat(_load_runtime_settings(),
+                                             _active_model_name())
             self._log("GET /api/settings -> 200")
             _send_json(self, 200, payload)
             return
@@ -1345,10 +1449,13 @@ class CompanionHandler(BaseHTTPRequestHandler):
                 {"id": i, "name": str(name)}
                 for i, name in enumerate(names)
             ]
-            settings = _load_runtime_settings()
+            model_name = catalog.get("model_name")
+            settings = _resolve_settings_flat(_load_runtime_settings(),
+                                              model_name)
             selected = _resolve_counting_class_ids(settings, catalog)
             payload = {
                 "model_version": catalog.get("model_version"),
+                "model_name": model_name,
                 "nc": len(classes),
                 "classes": classes,
                 "default_counting_class": catalog.get(
@@ -1533,20 +1640,12 @@ class CompanionHandler(BaseHTTPRequestHandler):
             return
 
         # Merge the incoming keys into the existing settings
-        # (PATCH-like). _load_runtime_settings returns {} when the
-        # file is absent (the normal state at boot).
+        # (PATCH-like) with BL-89 per-model routing: global keys to the
+        # top level, per-model keys to `models.<active_model>` (with a
+        # one-time migration of legacy flat per-model keys).
         merged = _load_runtime_settings()
-        for key, val in body.items():
-            # Only the recognised keys are merged; unknown keys
-            # are ignored (forward-compat, matches the validator).
-            if key in ("draw_tracking", "box_tracking",
-                       "centroid_tracking",
-                       "offset_counting_line",
-                       "counting_line_orientation",
-                       "counting_class_ids",
-                       "mask_zones",
-                       "draw_mask_zones"):
-                merged[key] = val
+        model_name = _active_model_name()
+        merged = _merge_settings_per_model(merged, body, model_name)
 
         # Atomic write: temp file in the same dir, then os.replace
         # so a crash mid-write never leaves a partial JSON file
@@ -1562,8 +1661,11 @@ class CompanionHandler(BaseHTTPRequestHandler):
             _send_json(self, 500, {"error": str(exc)})
             return
 
-        self._log("PUT /api/settings -> 200 ({})".format(merged))
-        _send_json(self, 200, merged)
+        # Respond with the flat resolved view (active model) so the app
+        # sees the effective settings, not the nested storage.
+        flat = _resolve_settings_flat(merged, model_name)
+        self._log("PUT /api/settings -> 200 ({})".format(flat))
+        _send_json(self, 200, flat)
 
     def do_POST(self):
         # /api/power: write the .arret_requested sentinel so the
