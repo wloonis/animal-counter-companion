@@ -139,13 +139,40 @@ Schema:
   "draw_tracking": true,
   "box_tracking": true,
   "centroid_tracking": true,
-  "offset_counting_line": 10,
-  "counting_line_orientation": "vertical",
-  "counting_class_ids": [1],
-  "mask_zones": [],
-  "draw_mask_zones": true
+  "draw_mask_zones": true,
+  "models": {
+    "sheep_template": {
+      "counting_class_ids": [0],
+      "counting_line_orientation": "vertical",
+      "offset_counting_line": 0,
+      "mask_zones": []
+    },
+    "my_model": {
+      "counting_class_ids": [1],
+      "counting_line_orientation": "vertical",
+      "offset_counting_line": -13,
+      "mask_zones": [{"x": 0, "y": 0, "w": 1, "h": 0.165, "name": "Mur"}]
+    }
+  }
 }
 ```
+
+**BL-89 — per-model settings.** The 4 scene/camera/model-specific keys
+(`mask_zones`, `counting_line_orientation`, `offset_counting_line`,
+`counting_class_ids`) live under a **`models.<model_name>`** section, one per
+deployed model, so switching models (pig → sheep) loads that model's own
+mask zones + counting line instead of the other's. The 4 display/tracker
+toggles (`draw_tracking`, `box_tracking`, `centroid_tracking`, `draw_mask_zones`)
+are **global** (user preference) and stay at the top level. The active
+`model_name` comes from `model-classes.json` (BL-89, see file #5).
+
+The countingapp (`load_runtime_settings`) returns a **flat** dict = global keys
++ the active model's per-model keys merged, so the downstream resolve_* /
+main.py / watcher read flat keys unchanged. **Backward compat**: when `models`
+is absent (legacy flat file), the per-model keys are read from the top level
+(pre-BL-89 behavior); the companion migrates flat → `models.<active>` on the
+first PUT. When `models` exists but the active model has no entry, the
+per-model keys are absent (defaults apply).
 
 | Key | Type | Range | Default | Effect |
 |-----|------|-------|---------|--------|
@@ -186,16 +213,18 @@ Schema:
 
 ```json
 {
-  "model_version": "<roboflow_version>",
-  "nc": 2,
-  "names": ["human", "pig"],
-  "default_counting_class": 1
+  "model_version": "sheep_template",
+  "model_name": "sheep_template",
+  "nc": 1,
+  "names": ["sheep"],
+  "default_counting_class": 0
 }
 ```
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `model_version` | string\|null | Roboflow dataset version (from `data.yaml`) |
+| `model_version` | string\|null | dataset version label (from `classes.yaml`; for local datasets = the dataset name) |
+| `model_name` | string\|null | **(BL-89)** active model name (basename of the dataset dir = the `.engine`/`.onnx`/`.pt` stem). The companion reads this to select the matching `models.<model_name>` runtime-settings section |
 | `nc` | int | number of classes the model detects |
 | `names` | array[string] | ordered class names (index = class id) |
 | `default_counting_class` | int | class id counted by default (model property; `[default_counting_class]` is the fallback `counting_class_ids`) |
