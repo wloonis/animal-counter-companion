@@ -140,6 +140,8 @@ Schema:
   "box_tracking": true,
   "centroid_tracking": true,
   "draw_mask_zones": true,
+  "counting_direction_mode": "auto",
+  "counting_direction": null,
   "models": {
     "sheep_template": {
       "counting_class_ids": [0],
@@ -184,6 +186,74 @@ per-model keys are absent (defaults apply).
 | `counting_class_ids` | array[int] | subset of `model-classes.json` `names` ids | `[default_counting_class]` | **(BL-78)** which class IDs the countingapp counts; hot-reloaded per recording (validated against `model-classes.json`; invalid IDs dropped with a WARNING; fallback `[default_counting_class]` when absent/empty/all-invalid) |
 | `mask_zones` | array[object] | each `{x,y,w,h, name?}` in `[0..1]`, `w>0`, `h>0`, `x+w<=1`, `y+h<=1` | `[]` | **(BL-87)** normalized axis-aligned exclusion rects; detections whose centroid falls inside any rect are dropped before tracking (no track → no count). Strict reject-all on any invalid rect (field ignored, prior kept, WARNING). Hot-reloaded at idle. Generic (all species). **`name` (optional string, additive)** is an app-local label for the rect (Android UI): the companion stores + returns it (generic merge, unknown-key tolerant), the countingapp ignores it (reads only `x/y/w/h`) |
 | `draw_mask_zones` | bool | — | `true` | **(BL-87)** draw a semi-transparent overlay of the `mask_zones` rects (independent of `draw_tracking`). Hot-reloaded |
+| `counting_direction_mode` | string | `"auto"` \| `"manual"` | `"auto"` | **(BL-92)** auto-detect the dominant crossing direction per run via a warm-up of N=3 crossings or T=10s then lock, vs manual operator-set +1. Hot-reloaded at idle (BL-86 gating). *Additive — companion byte-identical sync later* |
+| `counting_direction` | string | `up` \| `down` \| `left` \| `right` \| `null` | `null` | **(BL-92, manual only)** the +1 direction. Validated vs the active `counting_line_orientation` (horizontal → `up`/`down`, vertical → `left`/`right`, reject+WARN on mismatch → fall back to auto/default). A change resets the counter like `counting_class_ids`. *Additive — companion byte-identical sync later* |
+
+**BL-93 — per-model input config + output_fps (startup-only, NOT hot-reloaded).**
+In addition to the 4 counting/visual keys above, each `models.<model_name>`
+section MAY carry the following input/recording keys. These are read **once at
+startup** (`main.py::start`, via `state.py::resolve_input_config` /
+`resolve_output_fps`) and are **deliberately excluded from the hot-reload
+watcher** (`RuntimeSettingsWatcher._build_pending` only processes the
+counting/visual keys above) — switching the physical sensor (camera ↔ drone)
+is a restart, not a hot-swap. The resolvers fall back to the env defaults
+(`settings.INPUT_SOURCE` / `settings.VIDEO_PATH` / `settings.INPUT_WIDTH` /
+`settings.INPUT_HEIGHT` / `settings.FPS_OUTPUT`) when a key is absent or invalid
+(retrocompat for pre-BL-93 flat files). Invalid values log a WARNING and fall
+back; resolvers never raise (fail-open).
+
+| Key | Type | Range | Default | Effect |
+|-----|------|-------|---------|--------|
+| `input_source` | string | `"CAMERA"` \| `"STREAM"` \| `"FILE"` | env `INPUT_SOURCE` (`CAMERA`) | **(BL-93, startup-only)** frame input type. `CAMERA` = V4L2 `/dev/videoN` (pig prod). `STREAM` = RTSP URL (sheep drone, 720p). `FILE` = validation/test. Validated ∈ {CAMERA, STREAM, FILE}; invalid → env fallback. Precedence: CLI `-m`/`-f` (validation/test) > per-model `input_source` > env `INPUT_SOURCE` |
+| `input_url` | string | non-empty RTSP URL | — | **(BL-93, startup-only)** RTSP URL, **required when `input_source == "STREAM"`**. Absent/empty when STREAM → env fallback (logged WARNING). Ignored for CAMERA/FILE |
+| `input_device` | string | e.g. `"/dev/video0"` | — | **(BL-93, startup-only)** V4L2 device path, **required when `input_source == "CAMERA"`**. Absent when CAMERA → env fallback (`settings.VIDEO_PATH`). Ignored for STREAM/FILE |
+| `input_width` | int | positive (>0, reject bool) | env `INPUT_WIDTH` (`640`) | **(BL-93, startup-only)** **capture** resolution width passed to `cv2.CAP_PROP_FRAME_WIDTH` (decoupled from the recording `OUTPUT_WIDTH`). For CAMERA this sets the sensor capture size; for STREAM it is a hint only (RTSP negotiates native 720p); FILE ignores it. Invalid (bool/zero/negative) → env fallback |
+| `input_height` | int | positive (>0, reject bool) | env `INPUT_HEIGHT` (`480`) | **(BL-93, startup-only)** **capture** resolution height passed to `cv2.CAP_PROP_FRAME_HEIGHT` (decoupled from the recording `OUTPUT_HEIGHT`). Same semantics as `input_width` |
+| `output_fps` | int | positive (>0, reject bool) | env `FPS_OUTPUT` (`30`) | **(BL-93, startup-only)** the `cv2.VideoWriter` frame rate for recorded clips. Replaces the previously hardcoded `30`, fixing the writer@30fps vs 15fps-FP16@1280 time-compression bug (recordings played ~2× too fast). The writer frame size stays `OUTPUT_WIDTH/HEIGHT` 640×480 (PR #129 resize). Validation is byte-identical: `my_model` sets `output_fps=30` = today's hardcoded value; legacy files without the key fall back to `FPS_OUTPUT=30`. v1 uses a static per-model estimate (option A); runtime auto-detection (option B) is a documented future enhancement |
+
+**runtime-settings.json — full BL-93 example** (pig `my_model` CAMERA + sheep
+`sheep_template` STREAM, matching issue §1):
+
+```json
+{
+  "draw_tracking": true,
+  "box_tracking": true,
+  "centroid_tracking": true,
+  "draw_mask_zones": true,
+  "models": {
+    "my_model": {
+      "counting_class_ids": [1],
+      "counting_line_orientation": "vertical",
+      "offset_counting_line": -13,
+      "mask_zones": [{"x": 0, "y": 0, "w": 1, "h": 0.165, "name": "Mur"}],
+      "input_source": "CAMERA",
+      "input_device": "/dev/video0",
+      "input_width": 640,
+      "input_height": 480,
+      "output_fps": 30
+    },
+    "sheep_template": {
+      "counting_class_ids": [0],
+      "counting_line_orientation": "vertical",
+      "offset_counting_line": 0,
+      "mask_zones": [],
+      "input_source": "STREAM",
+      "input_url": "rtsp://drone.local:8554/live",
+      "input_width": 1280,
+      "input_height": 720,
+      "output_fps": 15
+    }
+  }
+}
+```
+
+> **BL-93 — additive, companion byte-identical sync pending.** The 6
+> startup-only input/recording keys above are new additive `models.<name>`
+> keys. The companion's generic merge (unknown-key tolerant) already stores
+> and returns them unmodified; the Android UI input-config editor + the
+> byte-identical `IPC_CONTRACT.md` sync in the sister repo
+> (`wloonis/animal-counter-companion`) are a **separate follow-up** (a
+> co-issue, like the BL-92 notes). Not gating this run's standard validation.
 
 Keys not present are ignored (defaults from `app/src/settings.py` apply). A
 missing/empty/invalid file → countingapp keeps current settings.
