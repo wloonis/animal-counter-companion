@@ -227,4 +227,14 @@
     <string name="mask_save_error">Échec de l\'enregistrement</string>
     <string name="mask_drag_hint">Glisser sur une zone vide pour tracer une nouvelle zone, ou glisser une zone existante pour la déplacer.</string>
     <string name="mask_empty">Aucune zone de masquage.</string>
+
+    <!-- BL-92 — section « Sens de comptage » dans Réglages -->
+    <string name="section_counting_direction">Sens de comptage</string>
+    <string name="counting_direction_mode_auto">Auto</string>
+    <string name="counting_direction_mode_manual">Manuel</string>
+    <string name="counting_direction_up">Haut</string>
+    <string name="counting_direction_down">Bas</string>
+    <string name="counting_direction_left">Gauche</string>
+    <string name="counting_direction_right">Droite</string>
+    <string name="counting_direction_reset_warning">Changer le sens remet le compteur à zéro.</string>
 </resources>

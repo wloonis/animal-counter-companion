@@ -227,4 +227,14 @@
     <string name="mask_save_error">Save failed</string>
     <string name="mask_drag_hint">Drag on an empty area to draw a new zone, or drag an existing zone to move it.</string>
     <string name="mask_empty">No mask zone yet.</string>
+
+    <!-- BL-92 — counting direction section in Settings -->
+    <string name="section_counting_direction">Counting direction</string>
+    <string name="counting_direction_mode_auto">Auto</string>
+    <string name="counting_direction_mode_manual">Manual</string>
+    <string name="counting_direction_up">Up</string>
+    <string name="counting_direction_down">Down</string>
+    <string name="counting_direction_left">Left</string>
+    <string name="counting_direction_right">Right</string>
+    <string name="counting_direction_reset_warning">Changing the direction resets the counter.</string>
 </resources>
