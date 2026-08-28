@@ -428,6 +428,9 @@ class HistoryIndex:
             "last_event_ts": last_event_ts,
             "image_tag": (cfg or {}).get("image_tag")
                           if isinstance(cfg, dict) else None,
+            # BL-85: counting-line orientation for this session
+            # ("vertical" default for pre-BL-83 sessions).
+            "counting_line_orientation": self._session_orientation(sess),
             # BL-71: the video name + per-video duration now live on
             # the VIDEO entity (/api/videos), NOT the session. The
             # session keeps only global facts (count, perf/thermal,
@@ -462,6 +465,28 @@ class HistoryIndex:
         end_clean.pop("video", None)
         vids = [v for v in self._video_order
                 if (self._videos[v].get("session_id") == sid)]
+        # BL-85: session-level directional counts aggregated from
+        # ALL of the session's "crossed" events (LEFT/RIGHT/UP/DOWN).
+        # These companion-aggregated top-level fields work for running
+        # sessions (no session_end yet) and are consistent with the
+        # per-video aggregation in video_detail(). The countingapp's
+        # session_end.counters (LEFT/RIGHT only) is kept as-is for
+        # backward compat.
+        count_left = 0
+        count_right = 0
+        count_down = 0  # UP direction (DOWN -> UP crossing)
+        count_up = 0    # DOWN direction (UP -> DOWN crossing)
+        for e in (sess.get("events") or []):
+            if e.get("event_type") == "crossed":
+                d = (e.get("detail") or {}).get("direction")
+                if d == "LEFT":
+                    count_left += 1
+                elif d == "RIGHT":
+                    count_right += 1
+                elif d == "UP":
+                    count_down += 1
+                elif d == "DOWN":
+                    count_up += 1
         return {
             "session_id": sid,
             "start": start,
@@ -473,6 +498,11 @@ class HistoryIndex:
             "config": cfg,
             "heartbeats": sess.get("heartbeats") or [],
             "videos": vids,
+            "counting_line_orientation": self._session_orientation(sess),
+            "count_left_to_right": count_left,
+            "count_right_to_left": count_right,
+            "count_down_to_up": count_down,
+            "count_up_to_down": count_up,
         }
 
     def daily_summary(self, days=7):
