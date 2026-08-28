@@ -76,6 +76,19 @@ const val DEFAULT_OFFSET_COUNTING_LINE: Int = 0
  *  y = H/2 + H*off/100). Mirrors the counting app default. */
 const val DEFAULT_COUNTING_LINE_ORIENTATION: String = "vertical"
 
+/** Default counting direction mode (BL-92): "auto" (the counting app derives
+ *  the direction from the counting-line orientation) | "manual" (the user
+ *  picks an explicit `counting_direction`). Mirrors the counting app
+ *  default. */
+const val DEFAULT_COUNTING_DIRECTION_MODE: String = "auto"
+
+/** Default counting direction (BL-92, manual mode only): `null` means "not
+ *  set / inherit from auto mode". Stored as the empty-string sentinel in
+ *  DataStore (see [SettingsRepository.countingDirection]). Not a `const`
+ *  because Kotlin only allows `const val` for primitive/String types (not
+ *  `String?`). */
+val DEFAULT_COUNTING_DIRECTION: String? = null
+
 /** Practical UI range for the signed offset slider. The companion accepts
  *  the loose -300..300 sanity range; we cap the slider at +/-50 for usable
  *  fine control (the counting app clamps to image bounds anyway). */
@@ -127,6 +140,10 @@ class SettingsRepository(private val context: Context) {
         stringPreferencesKey(COUNTING_LINE_ORIENTATION_KEY)
     private val drawMaskZonesKey =
         booleanPreferencesKey(DRAW_MASK_ZONES_KEY)
+    private val countingDirectionModeKey =
+        stringPreferencesKey(COUNTING_DIRECTION_MODE_KEY)
+    private val countingDirectionKey =
+        stringPreferencesKey(COUNTING_DIRECTION_KEY)
 
     /**
      * The manual-override Jetson IP. Emits [DEFAULT_JETSON_IP] when no
@@ -218,6 +235,37 @@ class SettingsRepository(private val context: Context) {
     val drawMaskZones: Flow<Boolean> =
         context.dataStore.data.map { prefs ->
             prefs[drawMaskZonesKey] ?: DEFAULT_DRAW_MASK_ZONES
+        }
+
+    /**
+     * Offline cache of the counting direction mode
+     * (`counting_direction_mode`, BL-92): "auto" | "manual". Emits
+     * [DEFAULT_COUNTING_DIRECTION_MODE] ("auto") when unset. This is the
+     * last value pushed to the Jetson; the on-device
+     * `runtime-settings.json` is the source of truth at recording start.
+     */
+    val countingDirectionMode: Flow<String> =
+        context.dataStore.data.map { prefs ->
+            prefs[countingDirectionModeKey] ?: DEFAULT_COUNTING_DIRECTION_MODE
+        }
+
+    /**
+     * Offline cache of the manual counting direction
+     * (`counting_direction`, BL-92, manual mode only):
+     * "up" | "down" | "left" | "right" | `null`. Emits `null` when unset.
+     *
+     * `null` (auto / not-yet-set) is stored as the empty-string sentinel
+     * in DataStore — a non-null `String` is required by Preferences, so the
+     * read path maps `""` back to `null` here, and the write path
+     * ([setCountingDirection]) coerces `null`/blank to `""`. Any future
+     * edit that forgets the coercion would treat an unset direction as
+     * `""`; the coercion is kept in this single getter so a stale `""`
+     * never leaks out as a non-null string (which would otherwise be
+     * serialized on PUT and wrongly clear the auto inheritance).
+     */
+    val countingDirection: Flow<String?> =
+        context.dataStore.data.map { prefs ->
+            prefs[countingDirectionKey]?.takeIf { it.isNotBlank() }
         }
 
     /**
@@ -355,6 +403,35 @@ class SettingsRepository(private val context: Context) {
     }
 
     /**
+     * Persist [value] as the counting direction mode
+     * (`counting_direction_mode`, BL-92). [value] is coerced to the
+     * canonical "auto" | "manual" (defaults to "auto" on any other
+     * string, mirroring the counting app's resolve fallback and the
+     * companion's validation allow-list).
+     */
+    suspend fun setCountingDirectionMode(value: String) {
+        val canonical = if (value == "manual") "manual" else "auto"
+        context.dataStore.edit { prefs ->
+            prefs[countingDirectionModeKey] = canonical
+        }
+    }
+
+    /**
+     * Persist [value] as the manual counting direction
+     * (`counting_direction`, BL-92, manual mode only). `null` (and any
+     * blank string) is coerced to the empty-string sentinel (read back as
+     * `null` by [countingDirection]); a non-null value is trimmed and
+     * stored verbatim (validated/canonicalized upstream in the ViewModel
+     * and the companion).
+     */
+    suspend fun setCountingDirection(value: String?) {
+        val stored = value?.trim()?.ifBlank { null } ?: ""
+        context.dataStore.edit { prefs ->
+            prefs[countingDirectionKey] = stored
+        }
+    }
+
+    /**
      * Update the resolved active IP. Intended to be called only by
      * [JetsonConnectionManager][com.animalcounter.net.JetsonConnectionManager];
      * ViewModels read [activeIp].
@@ -376,5 +453,7 @@ class SettingsRepository(private val context: Context) {
         const val OFFSET_COUNTING_LINE_KEY = "offset_counting_line"
         const val COUNTING_LINE_ORIENTATION_KEY = "counting_line_orientation"
         const val DRAW_MASK_ZONES_KEY = "draw_mask_zones"
+        const val COUNTING_DIRECTION_MODE_KEY = "counting_direction_mode"
+        const val COUNTING_DIRECTION_KEY = "counting_direction"
     }
 }

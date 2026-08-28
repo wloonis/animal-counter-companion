@@ -316,8 +316,128 @@ def test_combined_bl88_payload_ok():
     assert ok and errs == [], errs
 
 
+# --- counting_direction_mode (BL-92) --------------------------------------
+
+def test_direction_mode_auto_ok():
+    ok, errs = validate({"counting_direction_mode": "auto"})
+    assert ok and errs == [], errs
+
+
+def test_direction_mode_manual_ok():
+    ok, errs = validate({"counting_direction_mode": "manual"})
+    assert ok and errs == [], errs
+
+
+def test_direction_mode_unknown_rejected():
+    ok, errs = validate({"counting_direction_mode": "diagonal"})
+    assert not ok
+    assert any("counting_direction_mode must be 'auto' or 'manual'" in e
+               for e in errs)
+
+
+def test_direction_mode_bool_rejected():
+    # bool is not a str — must be rejected explicitly.
+    ok, errs = validate({"counting_direction_mode": True})
+    assert not ok
+    assert any("counting_direction_mode must be a string" in e
+               for e in errs)
+
+
+def test_direction_mode_int_rejected():
+    ok, errs = validate({"counting_direction_mode": 1})
+    assert not ok
+    assert any("counting_direction_mode must be a string" in e for e in errs)
+
+
+# --- counting_direction (BL-92) -------------------------------------------
+
+def test_direction_up_ok():
+    ok, errs = validate({"counting_direction": "up"})
+    assert ok and errs == [], errs
+
+
+def test_direction_down_ok():
+    ok, errs = validate({"counting_direction": "down"})
+    assert ok and errs == [], errs
+
+
+def test_direction_left_ok():
+    ok, errs = validate({"counting_direction": "left"})
+    assert ok and errs == [], errs
+
+
+def test_direction_right_ok():
+    ok, errs = validate({"counting_direction": "right"})
+    assert ok and errs == [], errs
+
+
+def test_direction_null_ok():
+    # null is valid (manual not yet set / auto mode).
+    ok, errs = validate({"counting_direction": None})
+    assert ok and errs == [], errs
+
+
+def test_direction_unknown_rejected():
+    ok, errs = validate({"counting_direction": "sideways"})
+    assert not ok
+    assert any("counting_direction must be 'up', 'down', 'left' or 'right'"
+               in e for e in errs)
+
+
+def test_direction_bool_rejected():
+    ok, errs = validate({"counting_direction": True})
+    assert not ok
+    assert any("counting_direction must be a string or null" in e
+               for e in errs)
+
+
+def test_direction_int_rejected():
+    ok, errs = validate({"counting_direction": 1})
+    assert not ok
+    assert any("counting_direction must be a string or null" in e
+               for e in errs)
+
+
+# --- BL-92 soft orientation-mismatch check (same-PUT only) ---------------
+
+def test_direction_orientation_mismatch_rejected():
+    # horizontal line → up/down only; "up" with "vertical" mismatches.
+    ok, errs = validate({
+        "counting_direction": "up",
+        "counting_line_orientation": "vertical",
+    })
+    assert not ok
+    assert any("mismatches counting_line_orientation" in e for e in errs)
+
+
+def test_direction_orientation_matching_horizontal_ok():
+    ok, errs = validate({
+        "counting_direction": "up",
+        "counting_line_orientation": "horizontal",
+    })
+    assert ok and errs == [], errs
+
+
+def test_direction_orientation_matching_vertical_ok():
+    ok, errs = validate({
+        "counting_direction": "left",
+        "counting_line_orientation": "vertical",
+    })
+    assert ok and errs == [], errs
+
+
+def test_direction_orientation_mismatch_vertical_rejected():
+    ok, errs = validate({
+        "counting_direction": "up",
+        "counting_line_orientation": "vertical",
+    })
+    assert not ok
+    assert any("expected 'left' or 'right'" in e for e in errs)
+
+
 def test_combined_full_payload_ok():
-    # Every recognised key together, including the BL-88 additions.
+    # Every recognised key together, including the BL-88 additions and
+    # the BL-92 counting-direction keys (auto + horizontal → up/down ok).
     ok, errs = validate({
         "draw_tracking": True,
         "box_tracking": True,
@@ -327,5 +447,7 @@ def test_combined_full_payload_ok():
         "counting_class_ids": [1],
         "mask_zones": [{"x": 0, "y": 0, "w": 0.5, "h": 0.5}],
         "draw_mask_zones": True,
+        "counting_direction_mode": "manual",
+        "counting_direction": "up",
     })
     assert ok and errs == [], errs

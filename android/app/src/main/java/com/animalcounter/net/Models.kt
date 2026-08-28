@@ -381,6 +381,21 @@ data class JetsonSettings(
     /** (BL-88) Whether the countingapp draws the mask zones on screen. `null`
      *  = do not modify (PATCH semantics); cached in DataStore (default `true`). */
     val drawMaskZones: Boolean? = null,
+    /** (BL-92) Counting-direction mode: "auto" | "manual". `null` = do not
+     *  modify (PATCH semantics); cached in DataStore (default "auto"). In
+     *  "auto" the countingapp derives the direction from the counting-line
+     *  orientation at recording start; in "manual" the explicit
+     *  [countingDirection] is used instead. */
+    val countingDirectionMode: String? = null,
+    /** (BL-92) Manual counting direction: "up" | "down" | "left" | "right" |
+     *  `null`. Only consulted when [countingDirectionMode] == "manual".
+     *  `null` = do not modify (PATCH semantics); an explicit `null` JSON value
+     *  on PUT is modeled by omitting the key here (PATCH-skip semantics), so
+     *  this Kotlin field only carries a non-null string when the app wants to
+     *  write one. The valid pair is gated by the counting-line orientation
+     *  (horizontal → up/down, vertical → left/right); the companion soft-
+     *  validates a same-PUT mismatch and the countingapp is authoritative. */
+    val countingDirection: String? = null,
 )
 
 /** (BL-88) One normalized axis-aligned mask rectangle `{x,y,w,h} ∈ [0..1]`,
@@ -443,6 +458,8 @@ internal fun JetsonSettings.toJson(): JSONObject = JSONObject().also { o ->
         o.put("mask_zones", arr)
     }
     drawMaskZones?.let { o.put("draw_mask_zones", it) }
+    countingDirectionMode?.let { o.put("counting_direction_mode", it) }
+    countingDirection?.let { o.put("counting_direction", it) }
 }
 
 /** Parse `GET /api/settings` (or the merged echo of `PUT /api/settings`) into
@@ -458,6 +475,8 @@ internal fun parseJetsonSettings(json: String): JetsonSettings {
         countingClassIds = o.optIntArrayOrNull("counting_class_ids"),
         maskZones = o.optMaskZonesOrNull("mask_zones"),
         drawMaskZones = o.optBooleanOrNull("draw_mask_zones"),
+        countingDirectionMode = o.optStringOrNull("counting_direction_mode"),
+        countingDirection = o.optStringOrNull("counting_direction"),
     )
 }
 

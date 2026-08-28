@@ -164,8 +164,8 @@ published by the countingapp at startup (BL-78) plus the current
 
 | Method | Path | Body | Purpose |
 |--------|------|------|---------|
-| `GET` | `/api/settings` | — | Current `runtime-settings.json` (empty `{}` when absent). As of BL-88 it also returns `mask_zones` (default `[]`) and `draw_mask_zones` (default `true`). |
-| `PUT` | `/api/settings` | PATCH JSON | Merge the given keys into `runtime-settings.json` (atomic write); echoes the merged object. Recognised keys: `draw_tracking`, `box_tracking`, `centroid_tracking` (bool), `offset_counting_line` (signed int, loose `-300..300` — BL-84), `counting_line_orientation` (`"vertical"`\|`"horizontal"` — BL-84), `counting_class_ids` (`int[]`, subset of the model classes — BL-82), `mask_zones` (list of `{x,y,w,h}` normalized rects, optional `name` string — BL-88), `draw_mask_zones` (bool — BL-88). Unknown keys ignored (forward-compat); 400 on a type/range violation. |
+| `GET` | `/api/settings` | — | Current `runtime-settings.json` (empty `{}` when absent). As of BL-88 it also returns `mask_zones` (default `[]`) and `draw_mask_zones` (default `true`). As of BL-92 it also returns `counting_direction_mode` (default `"auto"`) and `counting_direction` (default `null`, manual only). |
+| `PUT` | `/api/settings` | PATCH JSON | Merge the given keys into `runtime-settings.json` (atomic write); echoes the merged object. Recognised keys: `draw_tracking`, `box_tracking`, `centroid_tracking` (bool), `offset_counting_line` (signed int, loose `-300..300` — BL-84), `counting_line_orientation` (`"vertical"`\|`"horizontal"` — BL-84), `counting_class_ids` (`int[]`, subset of the model classes — BL-82), `mask_zones` (list of `{x,y,w,h}` normalized rects, optional `name` string — BL-88), `draw_mask_zones` (bool — BL-88), `counting_direction_mode` (`"auto"` \| `"manual"` — BL-92, global), `counting_direction` (`"up"` \| `"down"` \| `"left"` \| `"right"` \| `null`, manual only — BL-92, global). Unknown keys ignored (forward-compat); 400 on a type/range violation. A soft orientation-mismatch reject (400) fires when both `counting_direction` (non-null) and `counting_line_orientation` are present in the same PUT and the pair is inconsistent (horizontal line → up/down only, vertical line → left/right only); otherwise the value passes through and the authoritative reject+WARN stays in the countingapp. |
 | `GET` | `/api/classes` | — | Countable species catalog + current selection (BL-82): `{model_version, nc, classes:[{id,name}], default_counting_class, counting_class_ids}`. `404` when the countingapp has not published `model-classes.json` yet (not started / write pending) — the app shows "catalog unavailable" and can retry. |
 
 ### v4 — camera snapshot & mask zones (BL-88)
@@ -414,6 +414,28 @@ curl -X PUT http://192.168.0.180:8090/api/settings \
   -H 'Content-Type: application/json' \
   -d '{"counting_line_orientation":"horizontal","offset_counting_line":-10}'
 # 200 — echoes the merged runtime-settings.json (offset signed, 0 = centered)
+```
+
+**Set the counting direction (BL-92, global; manual mode + direction, hot-reloaded at next recording — the direction change resets the counter):**
+```bash
+curl -X PUT http://192.168.0.180:8090/api/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"counting_direction_mode":"manual","counting_direction":"up","counting_line_orientation":"horizontal"}'
+# 200 — echoes the merged runtime-settings.json
+# `counting_direction` pairs with a horizontal line (up/down crossing); a
+# vertical line pairs with left/right (see the soft-mismatch reject below).
+```
+
+**Negative test — orientation/direction mismatch in the same PUT (expect 400, soft BL-92 reject):**
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" \
+  -X PUT http://192.168.0.180:8090/api/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"counting_direction":"up","counting_line_orientation":"vertical"}'
+# 400 — up/down needs a horizontal line; left/right needs a vertical line.
+# Only checked when both keys are in the SAME PUT; a standalone
+# counting_direction PUT passes through and the countingapp does the
+# authoritative reject+WARN at recording start.
 ```
 
 **Negative test — bad orientation (expect 400):**

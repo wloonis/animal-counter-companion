@@ -55,6 +55,13 @@ not an automatic push.
   resize / name** exclusion zones directly on the preview (see
   [Mask zones editor](#mask-zones-editor-bl-88) below). Saved via
   `PUT /api/settings {mask_zones, draw_mask_zones}`.
+- **Sens de comptage (BL-92)** — in the **Settings** tab, the « Sens de
+  comptage » section holds an **Auto/Manual** toggle for
+  `counting_direction_mode`, and when Manual, an **Up/Down/Left/Right**
+  selector for `counting_direction` gated by the active
+  `counting_line_orientation` (Up/Down when the line is horizontal, Left/Right
+  when vertical). A red warning notes that a direction change resets the
+  counter. Saved via the coalesced `PUT /api/settings` PATCH.
 - **Network-change resilience (PR #22)** — when the phone leaves a WiFi
   network the cached Jetson IP is cleared so the next call re-probes, and
   `PUT`/`GET` retry once on a network error. Fixes the mask-zones save

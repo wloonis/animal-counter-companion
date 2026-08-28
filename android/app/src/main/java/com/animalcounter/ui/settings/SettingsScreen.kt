@@ -90,7 +90,7 @@ import com.animalcounter.ui.common.AppNavIcon
 
 /**
  * Settings tab (BL-73 / BL-76) — operator configuration, restructured into
- * five clear sections:
+ * clear sections:
  *
  *  1. **Horloge** — on-demand clock sync (BL-74, "Synchroniser l'heure").
  *  2. **Connexion au Jetson** — auto-select toggle, manual-override IP and
@@ -104,6 +104,9 @@ import com.animalcounter.ui.common.AppNavIcon
  *     master is OFF.
  *  5. **Ligne de comptage** — slider 0-100 for `offset_counting_line` with
  *     a live value readout and a warning that it affects the count.
+ *  5a. **Sens de comptage** — Auto/Manual toggle (`counting_direction_mode`)
+ *     + a direction selector (`counting_direction`) gated by the live
+ *     counting-line orientation, with a reset-counter warning (BL-92).
  *
  * Every edit is persisted to DataStore (debounced in [SettingsViewModel])
  * and, for the tracking/offset settings, pushed to the Jetson via
@@ -199,6 +202,8 @@ fun SettingsScreen() {
     val centroidTracking by vm.centroidTracking.collectAsState()
     val offsetCountingLine by vm.offsetCountingLine.collectAsState()
     val countingLineOrientation by vm.countingLineOrientation.collectAsState()
+    val countingDirectionMode by vm.countingDirectionMode.collectAsState()
+    val countingDirection by vm.countingDirection.collectAsState()
     val companionVersion by vm.companionVersion.collectAsState()
     val classCatalog by vm.classCatalog.collectAsState()
     val maskZones by vm.maskZones.collectAsState()
@@ -534,6 +539,79 @@ fun SettingsScreen() {
                 // Warning: changing the counting line affects the count.
                 Text(
                     text = stringResource(R.string.offset_warning),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+
+            // ---- 5a. Sens de comptage (BL-92) ----
+            Section(title = stringResource(R.string.section_counting_direction)) {
+                // Mode selector: Auto / Manual (`counting_direction_mode`).
+                // Auto → the countingapp derives the direction from the
+                // line orientation; Manual → the operator pins it via the
+                // chips below.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilterChip(
+                        selected = countingDirectionMode == "auto",
+                        onClick = { vm.setCountingDirectionMode("auto") },
+                        label = { Text(stringResource(R.string.counting_direction_mode_auto)) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    FilterChip(
+                        selected = countingDirectionMode == "manual",
+                        onClick = { vm.setCountingDirectionMode("manual") },
+                        label = { Text(stringResource(R.string.counting_direction_mode_manual)) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                // Manual direction selector, gated by the live counting-line
+                // orientation. Horizontal line → Up/Down crossing; vertical
+                // line → Left/Right crossing (per the IPC contract). Only
+                // shown when Manual is active.
+                if (countingDirectionMode == "manual") {
+                    val horizontal = countingLineOrientation == "horizontal"
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (horizontal) {
+                            FilterChip(
+                                selected = countingDirection == "up",
+                                onClick = { vm.setCountingDirection("up") },
+                                label = { Text(stringResource(R.string.counting_direction_up)) },
+                                modifier = Modifier.weight(1f),
+                            )
+                            FilterChip(
+                                selected = countingDirection == "down",
+                                onClick = { vm.setCountingDirection("down") },
+                                label = { Text(stringResource(R.string.counting_direction_down)) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        } else {
+                            FilterChip(
+                                selected = countingDirection == "left",
+                                onClick = { vm.setCountingDirection("left") },
+                                label = { Text(stringResource(R.string.counting_direction_left)) },
+                                modifier = Modifier.weight(1f),
+                            )
+                            FilterChip(
+                                selected = countingDirection == "right",
+                                onClick = { vm.setCountingDirection("right") },
+                                label = { Text(stringResource(R.string.counting_direction_right)) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+
+                // Warning: a direction change resets the counter (mirrors
+                // offset_warning / species_hot_reload_note).
+                Text(
+                    text = stringResource(R.string.counting_direction_reset_warning),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
