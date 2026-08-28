@@ -41,6 +41,7 @@ faithful stdlib mirror of the inline script in
 top of that module: the two must stay in sync; this test guards the mirror.
 """
 
+import importlib.util
 import json
 import os
 import tempfile
@@ -54,6 +55,24 @@ from companion_history_reader import (
     _int_arg,
     _parse_iso,
 )
+
+
+# ---------------------------------------------------------------------------
+# BL-85: load the REAL companion module (companion/jetson-companion.py)
+# so the new directional-aggregation / orientation logic added in Tasks 1-4
+# is tested against the actual deployed code, not the stale BL-68 mirror.
+# The hyphenated filename blocks a normal `import`, so use importlib.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def companion_module():
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.normpath(os.path.join(here, "..", "companion",
+                                         "jetson-companion.py"))
+    spec = importlib.util.spec_from_file_location("jetson_companion", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 # ---------------------------------------------------------------------------
@@ -503,5 +522,333 @@ def test_summary_line_collapses_cold_session(tmp_path):
     assert s["status"] == "ended"  # summary provided end_at -> end proxy set
     detail = idx.session_detail("cold-1")
     assert detail is not None
+
     assert detail["significant_events"] is not None
     assert detail["significant_events"][0]["event_type"] == "mirror_guard"
+
+
+# ===========================================================================
+# BL-85 — Directional aggregation (UP/DOWN) + counting_line_orientation
+# ===========================================================================
+#
+# These tests target the REAL companion module (companion/jetson-companion.py)
+# HistoryIndex, validating Tasks 1-4: the orientation resolver, UP/DOWN
+# aggregation in video_detail(), session-level directional counts in
+# session_detail(), orientation on session summaries + /api/videos rows +
+# the running-video row, and the SERVICE_VERSION bump 8 -> 9.
+#
+# Fixture sessions (fixed ISO timestamps so the video attribution timespan
+# math in video_detail() is deterministic):
+#   * sess-vert      — vertical line, LEFT/RIGHT crossed events (BL-83 style)
+#   * sess-horiz     — horizontal line, UP/DOWN crossed events (BL-83 style)
+#   * sess-prebl83   — no counting_line_orientation metadata -> default
+#                      "vertical" (pre-BL-83 backward compat)
+#   * sess-mixed     — horizontal line, events in ALL four directions
+#   * sess-running-h — horizontal line, UNTERMINATED (running) recording,
+#                      newest start_at so latest_count() picks it up
+# ===========================================================================
+
+def _bl85_lines():
+    """JSONL line dicts for the BL-85 fixture (5 sessions)."""
+    lines = []
+
+    def add(obj):
+        lines.append(obj)
+
+    # --- Session V: vertical, LEFT/RIGHT, ended ---
+    sidv = "sess-vert"
+    add({"type": "session_start", "session_id": sidv,
+         "prev_session_id": None, "start_at": "2026-01-09T10:00:00Z",
+         "start_reason": "boot", "status": "running",
+         "counting_line_orientation": "vertical",
+         "config": {"image_tag": "v1.0.1", "git_commit": "bbbbbbb",
+                    "mode": "serve"}})
+    # Finalized video: finalize ts 10:01:00, duration 60 -> span
+    # [10:00:00, 10:01:00].
+    add({"type": "video", "video_id": "counting-20260109-100000",
+         "filename": "counting-20260109-100000-#1.mp4", "duration": 60,
+         "count_delta": 3, "session_id": sidv, "ts": "2026-01-09T10:01:00Z"})
+    add({"type": "event", "session_id": sidv, "ts": "2026-01-09T10:00:10Z",
+         "event_type": "crossed", "detail": {"track_id": 1, "direction": "LEFT"}})
+    add({"type": "event", "session_id": sidv, "ts": "2026-01-09T10:00:20Z",
+         "event_type": "crossed", "detail": {"track_id": 2, "direction": "LEFT"}})
+    add({"type": "event", "session_id": sidv, "ts": "2026-01-09T10:00:30Z",
+         "event_type": "crossed", "detail": {"track_id": 3, "direction": "LEFT"}})
+    add({"type": "event", "session_id": sidv, "ts": "2026-01-09T10:00:40Z",
+         "event_type": "crossed", "detail": {"track_id": 4, "direction": "RIGHT"}})
+    add({"type": "heartbeat", "session_id": sidv, "ts": "2026-01-09T10:00:50Z",
+         "count": 3, "last_video": "/files/counting-20260109-100000.mp4"})
+    add({"type": "session_end", "session_id": sidv, "end_at": "2026-01-09T10:02:00Z",
+         "end_reason": "clean", "status": "clean",
+         "counters": {"count_left_to_right": 3, "count_right_to_left": 1}})
+
+    # --- Session H: horizontal, UP/DOWN, ended ---
+    sidh = "sess-horiz"
+    add({"type": "session_start", "session_id": sidh,
+         "prev_session_id": sidv, "start_at": "2026-01-10T10:00:00Z",
+         "start_reason": "boot", "status": "running",
+         "counting_line_orientation": "horizontal",
+         "config": {"image_tag": "v1.0.1", "git_commit": "bbbbbbb",
+                    "mode": "serve"}})
+    add({"type": "video", "video_id": "counting-20260110-100000",
+         "filename": "counting-20260110-100000-#1.mp4", "duration": 60,
+         "count_delta": 2, "session_id": sidh, "ts": "2026-01-10T10:01:00Z"})
+    # direction UP -> count_down_to_up (DOWN -> UP crossing)
+    add({"type": "event", "session_id": sidh, "ts": "2026-01-10T10:00:20Z",
+         "event_type": "crossed", "detail": {"track_id": 10, "direction": "UP"}})
+    add({"type": "event", "session_id": sidh, "ts": "2026-01-10T10:00:30Z",
+         "event_type": "crossed", "detail": {"track_id": 11, "direction": "UP"}})
+    # direction DOWN -> count_up_to_down (UP -> DOWN crossing)
+    add({"type": "event", "session_id": sidh, "ts": "2026-01-10T10:00:40Z",
+         "event_type": "crossed", "detail": {"track_id": 12, "direction": "DOWN"}})
+    add({"type": "heartbeat", "session_id": sidh, "ts": "2026-01-10T10:00:50Z",
+         "count": 2, "last_video": "/files/counting-20260110-100000.mp4"})
+    add({"type": "session_end", "session_id": sidh, "end_at": "2026-01-10T10:02:00Z",
+         "end_reason": "clean", "status": "clean",
+         "counters": {"count_left_to_right": 0, "count_right_to_left": 0}})
+
+    # --- Session P: pre-BL-83, no orientation metadata, ended ---
+    sidp = "sess-prebl83"
+    add({"type": "session_start", "session_id": sidp,
+         "prev_session_id": sidh, "start_at": "2026-01-08T10:00:00Z",
+         "start_reason": "boot", "status": "running",
+         "config": {"image_tag": "v1.0.0", "git_commit": "aaaaaaa",
+                    "mode": "serve"}})
+    add({"type": "video", "video_id": "counting-20260108-100000",
+         "filename": "counting-20260108-100000-#1.mp4", "duration": 60,
+         "count_delta": 1, "session_id": sidp, "ts": "2026-01-08T10:01:00Z"})
+    add({"type": "event", "session_id": sidp, "ts": "2026-01-08T10:00:20Z",
+         "event_type": "crossed", "detail": {"track_id": 20, "direction": "LEFT"}})
+    add({"type": "session_end", "session_id": sidp, "end_at": "2026-01-08T10:02:00Z",
+         "end_reason": "clean", "status": "clean",
+         "counters": {"count_left_to_right": 1, "count_right_to_left": 0}})
+
+    # --- Session M: mixed, horizontal, all four directions, ended ---
+    sidm = "sess-mixed"
+    add({"type": "session_start", "session_id": sidm,
+         "prev_session_id": sidp, "start_at": "2026-01-07T10:00:00Z",
+         "start_reason": "boot", "status": "running",
+         "counting_line_orientation": "horizontal",
+         "config": {"image_tag": "v1.0.1", "git_commit": "bbbbbbb",
+                    "mode": "serve"}})
+    add({"type": "video", "video_id": "counting-20260107-100000",
+         "filename": "counting-20260107-100000-#1.mp4", "duration": 120,
+         "count_delta": 4, "session_id": sidm, "ts": "2026-01-07T10:02:00Z"})
+    add({"type": "event", "session_id": sidm, "ts": "2026-01-07T10:00:20Z",
+         "event_type": "crossed", "detail": {"track_id": 30, "direction": "LEFT"}})
+    add({"type": "event", "session_id": sidm, "ts": "2026-01-07T10:00:40Z",
+         "event_type": "crossed", "detail": {"track_id": 31, "direction": "RIGHT"}})
+    add({"type": "event", "session_id": sidm, "ts": "2026-01-07T10:01:00Z",
+         "event_type": "crossed", "detail": {"track_id": 32, "direction": "UP"}})
+    add({"type": "event", "session_id": sidm, "ts": "2026-01-07T10:01:20Z",
+         "event_type": "crossed", "detail": {"track_id": 33, "direction": "DOWN"}})
+    add({"type": "session_end", "session_id": sidm, "end_at": "2026-01-07T10:03:00Z",
+         "end_reason": "clean", "status": "clean",
+         "counters": {"count_left_to_right": 1, "count_right_to_left": 1}})
+
+    # --- Session R: running, horizontal, newest start_at ---
+    sidr = "sess-running-h"
+    add({"type": "session_start", "session_id": sidr,
+         "prev_session_id": sidm, "start_at": "2026-01-11T10:00:00Z",
+         "start_reason": "boot", "status": "running",
+         "counting_line_orientation": "horizontal",
+         "config": {"image_tag": "v1.0.1", "git_commit": "bbbbbbb",
+                    "mode": "serve"}})
+    add({"type": "event", "session_id": sidr, "ts": "2026-01-11T10:00:20Z",
+         "event_type": "crossed", "detail": {"track_id": 40, "direction": "UP"}})
+    add({"type": "heartbeat", "session_id": sidr, "ts": "2026-01-11T10:00:30Z",
+         "count": 2, "record_start_count": 0,
+         "last_segment": "tmp-counting-20260111-100000.mp4"})
+    add({"type": "event", "session_id": sidr, "ts": "2026-01-11T10:00:40Z",
+         "event_type": "crossed", "detail": {"track_id": 41, "direction": "UP"}})
+    add({"type": "event", "session_id": sidr, "ts": "2026-01-11T10:00:50Z",
+         "event_type": "crossed", "detail": {"track_id": 42, "direction": "DOWN"}})
+    return lines
+
+
+@pytest.fixture
+def history_file_bl85(tmp_path):
+    p = tmp_path / "counting-history-bl85.jsonl"
+    with open(p, "w", encoding="utf-8") as f:
+        for obj in _bl85_lines():
+            f.write(json.dumps(obj) + "\n")
+    return str(p)
+
+
+# ---------------------------------------------------------------------------
+# (d) GET /api/identify version bump 8 -> 9 (Task 1)
+# ---------------------------------------------------------------------------
+
+def test_bl85_service_version_bumped_to_9(companion_module):
+    assert companion_module.SERVICE_VERSION == "9"
+
+
+# ---------------------------------------------------------------------------
+# (a) Horizontal session — video_detail UP/DOWN + orientation
+# ---------------------------------------------------------------------------
+
+def test_bl85_video_detail_horizontal_up_down(companion_module, history_file_bl85):
+    idx = companion_module.HistoryIndex(history_file_bl85)
+    vd = idx.video_detail("counting-20260110-100000")
+    assert vd is not None
+    assert vd["counting_line_orientation"] == "horizontal"
+    assert vd["count_down_to_up"] == 2   # two UP crossings
+    assert vd["count_up_to_down"] == 1   # one DOWN crossing
+    assert vd["count_left_to_right"] == 0
+    assert vd["count_right_to_left"] == 0
+    assert vd["status"] == "ready"
+    assert vd["video_id"] == "counting-20260110-100000"
+
+
+# ---------------------------------------------------------------------------
+# (b) Vertical session — LEFT/RIGHT unchanged + orientation "vertical"
+# ---------------------------------------------------------------------------
+
+def test_bl85_video_detail_vertical_left_right(companion_module, history_file_bl85):
+    idx = companion_module.HistoryIndex(history_file_bl85)
+    vd = idx.video_detail("counting-20260109-100000")
+    assert vd is not None
+    assert vd["counting_line_orientation"] == "vertical"
+    assert vd["count_left_to_right"] == 3
+    assert vd["count_right_to_left"] == 1
+    assert vd["count_down_to_up"] == 0
+    assert vd["count_up_to_down"] == 0
+
+
+# ---------------------------------------------------------------------------
+# (c) Pre-BL-83 session — orientation defaults to "vertical"
+# ---------------------------------------------------------------------------
+
+def test_bl85_video_detail_pre_bl83_defaults_vertical(companion_module, history_file_bl85):
+    idx = companion_module.HistoryIndex(history_file_bl85)
+    vd = idx.video_detail("counting-20260108-100000")
+    assert vd is not None
+    assert vd["counting_line_orientation"] == "vertical"
+    assert vd["count_left_to_right"] == 1
+    assert vd["count_down_to_up"] == 0
+    assert vd["count_up_to_down"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Mixed session — all four directional counts coexist
+# ---------------------------------------------------------------------------
+
+def test_bl85_video_detail_mixed_all_four(companion_module, history_file_bl85):
+    idx = companion_module.HistoryIndex(history_file_bl85)
+    vd = idx.video_detail("counting-20260107-100000")
+    assert vd is not None
+    assert vd["counting_line_orientation"] == "horizontal"
+    assert vd["count_left_to_right"] == 1
+    assert vd["count_right_to_left"] == 1
+    assert vd["count_down_to_up"] == 1
+    assert vd["count_up_to_down"] == 1
+
+
+# ---------------------------------------------------------------------------
+# (d) session_detail returns session-level directional counts for both pairs
+# ---------------------------------------------------------------------------
+
+def test_bl85_session_detail_horizontal_directional_counts(companion_module, history_file_bl85):
+    idx = companion_module.HistoryIndex(history_file_bl85)
+    d = idx.session_detail("sess-horiz")
+    assert d is not None
+    assert d["counting_line_orientation"] == "horizontal"
+    assert d["count_down_to_up"] == 2
+    assert d["count_up_to_down"] == 1
+    assert d["count_left_to_right"] == 0
+    assert d["count_right_to_left"] == 0
+    # end.counters (countingapp-written, LEFT/RIGHT only) is passed through.
+    assert d["end"]["counters"]["count_left_to_right"] == 0
+
+
+def test_bl85_session_detail_vertical_directional_counts(companion_module, history_file_bl85):
+    idx = companion_module.HistoryIndex(history_file_bl85)
+    d = idx.session_detail("sess-vert")
+    assert d is not None
+    assert d["counting_line_orientation"] == "vertical"
+    assert d["count_left_to_right"] == 3
+    assert d["count_right_to_left"] == 1
+    assert d["count_down_to_up"] == 0
+    assert d["count_up_to_down"] == 0
+
+
+def test_bl85_session_detail_pre_bl83_defaults_vertical(companion_module, history_file_bl85):
+    idx = companion_module.HistoryIndex(history_file_bl85)
+    d = idx.session_detail("sess-prebl83")
+    assert d is not None
+    assert d["counting_line_orientation"] == "vertical"
+    assert d["count_left_to_right"] == 1
+    assert d["count_down_to_up"] == 0
+
+
+def test_bl85_session_detail_mixed_all_four(companion_module, history_file_bl85):
+    idx = companion_module.HistoryIndex(history_file_bl85)
+    d = idx.session_detail("sess-mixed")
+    assert d is not None
+    assert d["counting_line_orientation"] == "horizontal"
+    assert d["count_left_to_right"] == 1
+    assert d["count_right_to_left"] == 1
+    assert d["count_down_to_up"] == 1
+    assert d["count_up_to_down"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Orientation on session summaries (Task 3) + /api/videos rows (Task 4)
+# ---------------------------------------------------------------------------
+
+def test_bl85_session_summaries_carry_orientation(companion_module, history_file_bl85):
+    idx = companion_module.HistoryIndex(history_file_bl85)
+    summaries, total = idx.session_summaries(limit=50)
+    assert total == 5
+    by_sid = {s["session_id"]: s for s in summaries}
+    assert by_sid["sess-horiz"]["counting_line_orientation"] == "horizontal"
+    assert by_sid["sess-vert"]["counting_line_orientation"] == "vertical"
+    assert by_sid["sess-prebl83"]["counting_line_orientation"] == "vertical"
+    assert by_sid["sess-mixed"]["counting_line_orientation"] == "horizontal"
+    assert by_sid["sess-running-h"]["counting_line_orientation"] == "horizontal"
+
+
+def test_bl85_video_summaries_rows_carry_orientation(companion_module, history_file_bl85):
+    idx = companion_module.HistoryIndex(history_file_bl85)
+    rows, total = idx.video_summaries(limit=50)
+    assert total == 4  # 4 finalized video lines (R is running, not finalized)
+    by_vid = {r["video_id"]: r for r in rows}
+    assert by_vid["counting-20260110-100000"]["counting_line_orientation"] == "horizontal"
+    assert by_vid["counting-20260109-100000"]["counting_line_orientation"] == "vertical"
+    assert by_vid["counting-20260108-100000"]["counting_line_orientation"] == "vertical"
+    assert by_vid["counting-20260107-100000"]["counting_line_orientation"] == "horizontal"
+    # rows are additive — old fields still present
+    assert by_vid["counting-20260110-100000"]["count_delta"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Running-video row orientation (Task 4 — _running_video_row)
+# ---------------------------------------------------------------------------
+
+def test_bl85_running_video_row_orientation(companion_module, history_file_bl85):
+    idx = companion_module.HistoryIndex(history_file_bl85)
+    row = idx._running_video_row()
+    assert row is not None
+    assert row["video_id"] == "counting-20260111-100000"
+    assert row["status"] == "running"
+    assert row["counting_line_orientation"] == "horizontal"
+    assert row["count_delta"] == 2  # count 2 - record_start_count 0
+
+
+def test_bl85_video_detail_running_horizontal(companion_module, history_file_bl85):
+    idx = companion_module.HistoryIndex(history_file_bl85)
+    vd = idx.video_detail("counting-20260111-100000")
+    assert vd is not None
+    assert vd["status"] == "running"
+    assert vd["counting_line_orientation"] == "horizontal"
+    assert vd["count_down_to_up"] == 2   # two UP crossings
+    assert vd["count_up_to_down"] == 1   # one DOWN crossing
+
+
+# ---------------------------------------------------------------------------
+# Backward compat: unknown video_id -> None
+# ---------------------------------------------------------------------------
+
+def test_bl85_video_detail_unknown_returns_none(companion_module, history_file_bl85):
+    idx = companion_module.HistoryIndex(history_file_bl85)
+    assert idx.video_detail("does-not-exist") is None
