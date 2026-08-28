@@ -25,7 +25,7 @@
 # (or 1970) until this service sets it.
 #
 # Endpoints:
-#   GET  /api/identify        -> {"service":"jetson-companion","version":"6"}
+#   GET  /api/identify        -> {"service":"jetson-companion","version":"9"}
 #   GET  /api/count           -> live count/status/auto_mode (newest heartbeat)
 #   POST /api/time            -> timedatectl set-time/set-timezone
 #   POST /api/power           -> writes .arret_requested sentinel (BL-76);
@@ -85,7 +85,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 SERVICE_NAME = "jetson-companion"
-SERVICE_VERSION = "8"
+SERVICE_VERSION = "9"
 HOST = "0.0.0.0"
 DEFAULT_PORT = 8090
 # Path on the Jetson HOST to the counting-history JSONL written by the
@@ -384,6 +384,26 @@ class HistoryIndex:
             if sess.get("end") is None:
                 return sess.get("last_hb")
         return None
+
+    def _session_orientation(self, sess):
+        """Resolve the counting-line orientation for a session.
+
+        Reads `counting_line_orientation` from the session_start
+        metadata first, falls back to session_end, and defaults to
+        `"vertical"` when absent/invalid (pre-BL-83 sessions had no
+        horizontal line support). Reused by all builders (summary,
+        detail, video rows, video detail) so the orientation is
+        consistent across endpoints. Returns "vertical" or "horizontal".
+        """
+        if not isinstance(sess, dict):
+            return "vertical"
+        for key in ("start", "end"):
+            block = sess.get(key)
+            if isinstance(block, dict):
+                val = block.get("counting_line_orientation")
+                if val == "vertical" or val == "horizontal":
+                    return val
+        return "vertical"
 
     def _summary_for(self, sid):
         sess = self._sessions[sid]
