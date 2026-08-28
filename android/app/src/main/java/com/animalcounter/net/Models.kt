@@ -110,6 +110,9 @@ data class SessionSummary(
     val imageTag: String?,
     val videoPath: String?,          // last_segment: the video filename (BL-69 video-info)
     val videoDuration: Double?,     // video.duration seconds (BL-69); null for old sessions
+    /** (BL-85) Counting-line orientation of the session: "vertical" | "horizontal".
+     *  `null` for a pre-BL-83 companion (defaults to "vertical" in the UI). */
+    val countingLineOrientation: String? = null,
 )
 
 /** `/api/sessions` → `{sessions[], limit, offset, total}`. */
@@ -142,6 +145,9 @@ data class VideoRow(
     val countDelta: Int?,
     val ts: String?,
     val status: String,          // "ready" | "running" | "unknown" | …
+    /** (BL-85) Counting-line orientation of the owning session; `null` for a
+     *  pre-BL-83 companion (the UI defaults to vertical). */
+    val countingLineOrientation: String? = null,
 )
 
 /** `/api/videos` → `{videos[], limit, offset, total}`. */
@@ -166,6 +172,12 @@ data class VideoDetail(
     val status: String,
     val countLeftToRight: Int,
     val countRightToLeft: Int,
+    /** (BL-85) Companion-aggregated UP/DOWN counts (horizontal line). */
+    val countDownToUp: Int = 0,
+    val countUpToDown: Int = 0,
+    /** (BL-85) Counting-line orientation of the owning session; `null` for a
+     *  pre-BL-83 companion (the UI defaults to vertical). */
+    val countingLineOrientation: String? = null,
     val guardInterventions: JSONObject,   // {event_type: count}
     val trackLost: Int,
     val events: List<CountingEvent>,
@@ -296,6 +308,16 @@ data class SessionDetail(
     // the VIDEO entity (/api/videos/<id>). The session keeps only global
     // facts + the list of its video_ids.
     val videos: List<String>,
+    /** (BL-85) Counting-line orientation resolved for the session
+     *  (start → end → default "vertical"); `null` for a pre-BL-83 companion. */
+    val countingLineOrientation: String? = null,
+    /** (BL-85) Companion-aggregated session-level directional counts (from
+     *  the session's `crossed` events). Nullable for a pre-BL-85 companion
+     *  (the UI falls back to `end.counters` LEFT/RIGHT). */
+    val countLeftToRight: Int? = null,
+    val countRightToLeft: Int? = null,
+    val countDownToUp: Int? = null,
+    val countUpToDown: Int? = null,
 )
 
 // ---------------------------------------------------------------------------
@@ -615,6 +637,7 @@ internal fun parseSessionSummary(o: JSONObject): SessionSummary = SessionSummary
     imageTag = o.optStringOrNull("image_tag"),
     videoPath = o.optStringOrNull("last_segment"),
     videoDuration = o.optDoubleOrNull("video_duration"),
+    countingLineOrientation = o.optStringOrNull("counting_line_orientation"),
 )
 
 /** Parse `GET /api/sessions` body into [SessionPage] (shape identical to the old `/api/history`). */
@@ -640,6 +663,7 @@ internal fun parseVideoRow(o: JSONObject): VideoRow = VideoRow(
     countDelta = o.optIntOrNull("count_delta"),
     ts = o.optStringOrNull("ts"),
     status = o.optStringOrNull("status") ?: "unknown",
+    countingLineOrientation = o.optStringOrNull("counting_line_orientation"),
 )
 
 /** Parse `GET /api/videos?limit=&offset=` body into [VideoPage] (mirrors [parseSessions]). */
@@ -681,6 +705,9 @@ internal fun parseVideoDetail(json: String): VideoDetail {
         status = o.optStringOrNull("status") ?: "unknown",
         countLeftToRight = o.optInt("count_left_to_right", 0),
         countRightToLeft = o.optInt("count_right_to_left", 0),
+        countDownToUp = o.optInt("count_down_to_up", 0),
+        countUpToDown = o.optInt("count_up_to_down", 0),
+        countingLineOrientation = o.optStringOrNull("counting_line_orientation"),
         guardInterventions = o.optJSONObject("guard_interventions") ?: JSONObject(),
         trackLost = o.optInt("track_lost", 0),
         events = events,
@@ -800,6 +827,11 @@ internal fun parseSessionDetail(json: String): SessionDetail {
         config = cfgObj?.let { parseConfigSnapshot(it) },
         heartbeats = (0 until hbArr.length()).map { parseHeartbeat(hbArr.getJSONObject(it)) },
         videos = videos,
+        countingLineOrientation = o.optStringOrNull("counting_line_orientation"),
+        countLeftToRight = o.optIntOrNull("count_left_to_right"),
+        countRightToLeft = o.optIntOrNull("count_right_to_left"),
+        countDownToUp = o.optIntOrNull("count_down_to_up"),
+        countUpToDown = o.optIntOrNull("count_up_to_down"),
     )
 }
 

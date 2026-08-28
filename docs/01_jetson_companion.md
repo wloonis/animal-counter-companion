@@ -69,13 +69,15 @@ aligned by BL-80).
 
 #### `GET /api/identify`
 
-**Response** `200` (with the BL-88 mask-zone endpoints deployed):
+**Response** `200` (with the BL-85 directional aggregation deployed):
 ```json
-{"service":"jetson-companion","version":"8"}
+{"service":"jetson-companion","version":"9"}
 ```
 The version bumps with each API surface addition: `"1"` (clock-sync only,
 pre-BL-68), `"2"` (BL-68 read-only history/video), `"6"` (BL-76/BL-82 settings
-relay + countable species), `"8"` (BL-88 camera snapshot + mask zones).
+relay + countable species), `"8"` (BL-88 camera snapshot + mask zones), `"9"`
+(BL-85 — directional UP/DOWN aggregation + `counting_line_orientation`
+surfaced across the history/video surface).
 
 Any other path returns `404`:
 ```json
@@ -146,6 +148,36 @@ are tolerated.
 | `GET` | `/api/startups` | `limit=50` | Startup history lines |
 | `GET` | `/api/videos` | `limit=50&offset=0` | Paginated video summaries (one row per recorded video + running recording as synthetic first row), newest first |
 | `GET` | `/api/video/<id>` | — (Range supported) | Range-streamed compressed `counting-<id>-*.mp4` (HTTP 200/206/416); 404 if absent or not yet compressed |
+
+**BL-85 (version `"9"`) — directional aggregation + orientation.** The
+companion now resolves the per-session `counting_line_orientation` (read
+from `session_start`, falling back to `session_end`, defaulting to `"vertical"`
+for pre-BL-83 sessions) and surfaces it additively across the read-only
+surface:
+
+- `/api/sessions` summaries — each row carries `counting_line_orientation`.
+- `/api/sessions/<id>` (session detail) — top-level `counting_line_orientation`
+  + companion-aggregated session-level directional counts
+  `count_left_to_right` / `count_right_to_left` / `count_down_to_up` /
+  `count_up_to_down` (all four counted from the session's raw `crossed` events
+  in `counting-history.jsonl`, so this also works for a still-running session
+  with no `session_end` yet).
+- `/api/videos` rows — each row carries `counting_line_orientation` (read
+  directly off the row — no separate `/api/sessions` fetch + client-side map
+  needed).
+- `/api/video/<id>` (video detail) — top-level `counting_line_orientation` +
+  `count_down_to_up` / `count_up_to_down` (additive, alongside the existing
+  `count_left_to_right` / `count_right_to_left`).
+
+The existing `count_left_to_right` / `count_right_to_left` fields are
+unchanged. The new UP/DOWN fields are **additive** (Option A): an older app
+reading the new responses simply ignores the unknown fields (`optInt` → 0,
+`optStringOrNull` → null), and a new app reading an older companion
+(SERVICE_VERSION < 9) gets a null orientation and degrades gracefully to the
+vertical-line labels. The countingapp-written `session_end.counters` (LEFT/RIGHT
+only) is kept as-is for backward compatibility — the Android « Comptage » card
+uses the companion-aggregated top-level directional counts, not
+`end.counters`.
 
 See the [curl examples](#curl-examples) below and
 [`03_counting_history.md`](03_counting_history.md) for the JSONL line schema
@@ -284,7 +316,7 @@ the local WiFi):
 **Identify the service:**
 ```bash
 curl http://192.168.0.180:8090/api/identify
-# {"service":"jetson-companion","version":"8"}
+# {"service":"jetson-companion","version":"9"}
 ```
 
 **Set the clock from the PC's current time** (use `date -Iseconds` so the
@@ -360,7 +392,7 @@ curl 'http://192.168.0.180:8090/api/summary?days=7'
 **List recent videos (running recording is the synthetic first row):**
 ```bash
 curl 'http://192.168.0.180:8090/api/videos?limit=10'
-# {"videos":[{"video_id":"counting-20250608-100000","filename":"counting-20250608-100000-#9.mp4","duration":120,"count_delta":9,"session_id":"...","ts":"...","status":"ready"},...],"limit":10,"offset":0,"total":N}
+# {"videos":[{"video_id":"counting-20250608-100000","filename":"counting-20250608-100000-#9.mp4","duration":120,"count_delta":9,"session_id":"...","ts":"...","status":"ready","counting_line_orientation":"vertical"},...],"limit":10,"offset":0,"total":N}
 ```
 
 **Range-stream a video (resumable/partial download):**

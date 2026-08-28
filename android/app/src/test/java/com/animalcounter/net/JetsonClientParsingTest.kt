@@ -657,6 +657,138 @@ class JetsonClientParsingTest {
     }
 
     // -------------------------------------------------------------------------
+    // BL-85 — directional aggregation (UP/DOWN) + counting_line_orientation
+    // -------------------------------------------------------------------------
+    //
+    // BL-83 (sister repo) introduced a horizontal counting-line orientation,
+    // emitting `crossed` events with `direction=UP/DOWN`. BL-85 makes the
+    // companion aggregate `count_down_to_up`/`count_up_to_down` (additive,
+    // alongside LEFT/RIGHT) and surface `counting_line_orientation` on every
+    // session/video shape. These tests cover the new parsers in [Models.kt].
+
+    @Test
+    fun parseVideoDetail_horizontalOrientationParsesUpDownCounts() {
+        // A horizontal-line video: the companion emits count_down_to_up /
+        // count_up_to_down and counting_line_orientation="horizontal".
+        val json = JSONObject()
+            .put("video_id", "counting-20250715-170000")
+            .put("session_id", "sess-horizontal-0004")
+            .put("filename", "counting-20250715-170000-#5.mp4")
+            .put("duration", 60.0)
+            .put("count_delta", 5)
+            .put("ts", "2025-07-15T17:00:00+02:00")
+            .put("status", "ready")
+            .put("count_left_to_right", 0)
+            .put("count_right_to_left", 0)
+            .put("count_down_to_up", 5)
+            .put("count_up_to_down", 0)
+            .put("counting_line_orientation", "horizontal")
+            .toString()
+        val d = parseVideoDetail(json)
+        assertEquals(5, d.countDownToUp)
+        assertEquals(0, d.countUpToDown)
+        assertEquals(0, d.countLeftToRight)
+        assertEquals(0, d.countRightToLeft)
+        assertEquals("horizontal", d.countingLineOrientation)
+        assertEquals("counting-20250715-170000", d.videoId)
+        assertEquals("sess-horizontal-0004", d.sessionId)
+    }
+
+    @Test
+    fun parseVideoRow_carriesCountingLineOrientation() {
+        // /api/videos rows now carry counting_line_orientation (additive) so
+        // the HistoryScreen arrow can be orientation-aware without a separate
+        // session fetch.
+        val row = parseVideoRow(JSONObject()
+            .put("video_id", "counting-20250715-170000")
+            .put("session_id", "sess-h-0004")
+            .put("filename", "counting-20250715-170000-#5.mp4")
+            .put("duration", 60.0)
+            .put("count_delta", 5)
+            .put("ts", "2025-07-15T17:00:00+02:00")
+            .put("status", "ready")
+            .put("counting_line_orientation", "horizontal"))
+        assertEquals("horizontal", row.countingLineOrientation)
+        assertEquals("counting-20250715-170000", row.videoId)
+        assertEquals(5, row.countDelta)
+    }
+
+    @Test
+    fun parseSessionSummary_carriesCountingLineOrientation() {
+        // /api/sessions summaries now carry counting_line_orientation.
+        val s = parseSessionSummary(JSONObject()
+            .put("session_id", "sess-h-0004")
+            .put("start_at", "2025-07-15T16:00:00+02:00")
+            .put("end_at", "2025-07-15T17:30:00+02:00")
+            .put("end_reason", "clean")
+            .put("status", "ended")
+            .put("net_count", 5)
+            .put("events", 5)
+            .put("heartbeats", 2)
+            .put("last_event_ts", "2025-07-15T17:29:00+02:00")
+            .put("image_tag", "v1.0.1")
+            .put("counting_line_orientation", "horizontal"))
+        assertEquals("horizontal", s.countingLineOrientation)
+        assertEquals("sess-h-0004", s.sessionId)
+        assertEquals(5, s.netCount)
+    }
+
+    @Test
+    fun parseSessionDetail_topLevelDirectionalCountsAndOrientation() {
+        // /api/sessions/<id> now carries companion-aggregated top-level
+        // directional counts for both pairs + counting_line_orientation.
+        val start = JSONObject()
+            .put("start_at", "2025-07-15T16:00:00+02:00")
+            .put("start_reason", "boot")
+            .put("status", "running")
+            .put("counting_line_orientation", "horizontal")
+        val json = JSONObject()
+            .put("session_id", "sess-h-0004")
+            .put("start", start)
+            .put("end", JSONObject.NULL)
+            .put("status", "running")
+            .put("net_count", 5)
+            .put("counting_line_orientation", "horizontal")
+            .put("count_left_to_right", 0)
+            .put("count_right_to_left", 0)
+            .put("count_down_to_up", 5)
+            .put("count_up_to_down", 0)
+            .toString()
+        val d = parseSessionDetail(json)
+        assertEquals("horizontal", d.countingLineOrientation)
+        assertEquals(0, d.countLeftToRight)
+        assertEquals(0, d.countRightToLeft)
+        assertEquals(5, d.countDownToUp)
+        assertEquals(0, d.countUpToDown)
+        assertEquals("sess-h-0004", d.sessionId)
+    }
+
+    @Test
+    fun parseVideoDetail_backwardCompatMissingNewFieldsDefaultGracefully() {
+        // A pre-BL-85 companion (SERVICE_VERSION < 9) does NOT emit the new
+        // fields. The parser must default UP/DOWN to 0 and orientation to null
+        // (the UI then treats null as "vertical") — no crash.
+        val json = JSONObject()
+            .put("video_id", "counting-20250715-170000")
+            .put("session_id", "sess-old-0002")
+            .put("filename", "counting-20250715-170000-#9.mp4")
+            .put("duration", 90.0)
+            .put("count_delta", 9)
+            .put("ts", "2025-07-15T17:00:00+02:00")
+            .put("status", "ready")
+            .put("count_left_to_right", 9)
+            .put("count_right_to_left", 0)
+            .toString()
+        val d = parseVideoDetail(json)
+        assertEquals(0, d.countDownToUp)
+        assertEquals(0, d.countUpToDown)
+        assertNull(d.countingLineOrientation)
+        // Existing LEFT/RIGHT still parse.
+        assertEquals(9, d.countLeftToRight)
+        assertEquals(0, d.countRightToLeft)
+    }
+
+    // -------------------------------------------------------------------------
     // Endpoint-mapping sanity   (BL-72)
     // -------------------------------------------------------------------------
     //

@@ -25,7 +25,7 @@
 # (or 1970) until this service sets it.
 #
 # Endpoints:
-#   GET  /api/identify        -> {"service":"jetson-companion","version":"6"}
+#   GET  /api/identify        -> {"service":"jetson-companion","version":"9"}
 #   GET  /api/count           -> live count/status/auto_mode (newest heartbeat)
 #   POST /api/time            -> timedatectl set-time/set-timezone
 #   POST /api/power           -> writes .arret_requested sentinel (BL-76);
@@ -85,7 +85,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 SERVICE_NAME = "jetson-companion"
-SERVICE_VERSION = "8"
+SERVICE_VERSION = "9"
 HOST = "0.0.0.0"
 DEFAULT_PORT = 8090
 # Path on the Jetson HOST to the counting-history JSONL written by the
@@ -385,6 +385,26 @@ class HistoryIndex:
                 return sess.get("last_hb")
         return None
 
+    def _session_orientation(self, sess):
+        """Resolve the counting-line orientation for a session.
+
+        Reads `counting_line_orientation` from the session_start
+        metadata first, falls back to session_end, and defaults to
+        `"vertical"` when absent/invalid (pre-BL-83 sessions had no
+        horizontal line support). Reused by all builders (summary,
+        detail, video rows, video detail) so the orientation is
+        consistent across endpoints. Returns "vertical" or "horizontal".
+        """
+        if not isinstance(sess, dict):
+            return "vertical"
+        for key in ("start", "end"):
+            block = sess.get(key)
+            if isinstance(block, dict):
+                val = block.get("counting_line_orientation")
+                if val == "vertical" or val == "horizontal":
+                    return val
+        return "vertical"
+
     def _summary_for(self, sid):
         sess = self._sessions[sid]
         start = sess.get("start") or {}
@@ -408,6 +428,9 @@ class HistoryIndex:
             "last_event_ts": last_event_ts,
             "image_tag": (cfg or {}).get("image_tag")
                           if isinstance(cfg, dict) else None,
+            # BL-85: counting-line orientation for this session
+            # ("vertical" default for pre-BL-83 sessions).
+            "counting_line_orientation": self._session_orientation(sess),
             # BL-71: the video name + per-video duration now live on
             # the VIDEO entity (/api/videos), NOT the session. The
             # session keeps only global facts (count, perf/thermal,
@@ -442,6 +465,28 @@ class HistoryIndex:
         end_clean.pop("video", None)
         vids = [v for v in self._video_order
                 if (self._videos[v].get("session_id") == sid)]
+        # BL-85: session-level directional counts aggregated from
+        # ALL of the session's "crossed" events (LEFT/RIGHT/UP/DOWN).
+        # These companion-aggregated top-level fields work for running
+        # sessions (no session_end yet) and are consistent with the
+        # per-video aggregation in video_detail(). The countingapp's
+        # session_end.counters (LEFT/RIGHT only) is kept as-is for
+        # backward compat.
+        count_left = 0
+        count_right = 0
+        count_down = 0  # UP direction (DOWN -> UP crossing)
+        count_up = 0    # DOWN direction (UP -> DOWN crossing)
+        for e in (sess.get("events") or []):
+            if e.get("event_type") == "crossed":
+                d = (e.get("detail") or {}).get("direction")
+                if d == "LEFT":
+                    count_left += 1
+                elif d == "RIGHT":
+                    count_right += 1
+                elif d == "UP":
+                    count_down += 1
+                elif d == "DOWN":
+                    count_up += 1
         return {
             "session_id": sid,
             "start": start,
@@ -453,6 +498,11 @@ class HistoryIndex:
             "config": cfg,
             "heartbeats": sess.get("heartbeats") or [],
             "videos": vids,
+            "counting_line_orientation": self._session_orientation(sess),
+            "count_left_to_right": count_left,
+            "count_right_to_left": count_right,
+            "count_down_to_up": count_down,
+            "count_up_to_down": count_up,
         }
 
     def daily_summary(self, days=7):
@@ -510,6 +560,8 @@ class HistoryIndex:
         ids = self._video_order[offset:offset + limit]
         for vid in ids:
             obj = self._videos.get(vid) or {}
+            sid = obj.get("session_id")
+            sess = self._sessions.get(sid) if sid else None
             out.append({
                 "video_id": vid,
                 "filename": obj.get("filename"),
@@ -519,6 +571,7 @@ class HistoryIndex:
                 "session_id": obj.get("session_id"),
                 "ts": obj.get("ts"),
                 "status": "ready",
+                "counting_line_orientation": self._session_orientation(sess) if sess else "vertical",
             })
         return out, len(self._video_order)
 
@@ -551,15 +604,18 @@ class HistoryIndex:
             delta = int(count) - int(rsc)
         except (TypeError, ValueError):
             return None
+        rsid = hb.get("session_id")
+        rsess = self._sessions.get(rsid) if rsid else None
         return {
             "video_id": "counting-" + ts_stem,
             "filename": "counting-{}.mp4".format(ts_stem),
             "duration": None,
             "file_duration": None,
             "count_delta": delta,
-            "session_id": hb.get("session_id"),
+            "session_id": rsid,
             "ts": hb.get("ts"),
             "status": "running",
+            "counting_line_orientation": self._session_orientation(rsess) if rsess else "vertical",
         }
 
     def video_detail(self, video_id):
@@ -646,6 +702,8 @@ class HistoryIndex:
         # matching counting.py semantics).
         count_left = 0
         count_right = 0
+        count_down = 0  # UP direction (DOWN -> UP crossing)
+        count_up = 0    # DOWN direction (UP -> DOWN crossing)
         for e in evs:
             if e.get("event_type") == "crossed":
                 d = (e.get("detail") or {}).get("direction")
@@ -653,6 +711,10 @@ class HistoryIndex:
                     count_left += 1
                 elif d == "RIGHT":
                     count_right += 1
+                elif d == "UP":
+                    count_down += 1
+                elif d == "DOWN":
+                    count_up += 1
         # Guard interventions by type + track_lost count.
         guard_types = ("reid_suppress", "mirror_suppress",
                        "mirror_guard_enforce", "mirror_candidate",
@@ -730,6 +792,9 @@ class HistoryIndex:
             "status": "running" if running else "ready",
             "count_left_to_right": count_left,
             "count_right_to_left": count_right,
+            "count_down_to_up": count_down,
+            "count_up_to_down": count_up,
+            "counting_line_orientation": self._session_orientation(sess),
             "guard_interventions": guard_interventions,
             "track_lost": track_lost,
             "events": evs,

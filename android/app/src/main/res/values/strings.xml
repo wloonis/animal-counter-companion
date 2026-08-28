@@ -79,6 +79,8 @@
     <string name="detail_net">Net count</string>
     <string name="detail_count_ltr">Left → Right</string>
     <string name="detail_count_rtl">Right → Left</string>
+    <string name="detail_count_dtu">Down → Up</string>
+    <string name="detail_count_utd">Up → Down</string>
     <string name="detail_unique_ids">Unique track IDs</string>
     <string name="detail_id_switch">ID switch recoveries</string>
     <string name="detail_max_concurrent">Max concurrent tracks</string>
