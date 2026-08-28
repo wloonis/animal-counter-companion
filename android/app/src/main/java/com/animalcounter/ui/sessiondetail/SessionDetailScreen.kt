@@ -35,6 +35,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Build
@@ -166,6 +167,7 @@ fun SessionDetailScreen(
                 is SessionDetailUiState.Loaded -> {
                     val d = s.detail
                     item { HeaderCard(d) }
+                    item { ComptageCard(d) }
                     item { VideosCard(d) }
                     item { PerfCard(d) }
                     item { ConfigCard(d) }
@@ -396,16 +398,17 @@ internal fun KeyValueRow(label: String, value: String?) {
     }
 }
 
-/** Directional count row (left→right / right→left) with an arrow icon. */
+/** Directional count row (left→right / right→left / down→up / up→down)
+ *  with an orientation-appropriate arrow icon. */
 @Composable
-internal fun DirectionalRow(labelRes: Int, value: Int?) {
+internal fun DirectionalRow(labelRes: Int, value: Int?, arrow: ImageVector) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Icon(
-            imageVector = Icons.Filled.ArrowUpward,
+            imageVector = arrow,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(16.dp),
@@ -421,6 +424,34 @@ internal fun DirectionalRow(labelRes: Int, value: Int?) {
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
         )
+    }
+}
+
+/** B — Comptage (BL-85). Net headline + directional rows driven by the
+ *  session's `counting_line_orientation` (vertical = LEFT/RIGHT, horizontal
+ *  = UP/DOWN). The counts come from the companion's top-level aggregated
+ *  fields (not `end.counters`); they are available for both running and
+ *  ended sessions. */
+@Composable
+private fun ComptageCard(d: SessionDetail) {
+    val isHorizontal = d.countingLineOrientation == "horizontal"
+    GroupCard(
+        icon = Icons.Filled.Timeline,
+        title = stringResource(R.string.group_counting),
+    ) {
+        Text(
+            text = "${d.netCount ?: 0}",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(8.dp))
+        if (isHorizontal) {
+            DirectionalRow(R.string.detail_count_dtu, d.countDownToUp, Icons.Filled.ArrowUpward)
+            DirectionalRow(R.string.detail_count_utd, d.countUpToDown, Icons.Filled.ArrowDownward)
+        } else {
+            DirectionalRow(R.string.detail_count_ltr, d.countLeftToRight, Icons.AutoMirrored.Filled.ArrowBack)
+            DirectionalRow(R.string.detail_count_rtl, d.countRightToLeft, Icons.Filled.ArrowForward)
+        }
     }
 }
 
