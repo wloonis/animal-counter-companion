@@ -287,7 +287,8 @@ Schema:
   "model_name": "sheep_template",
   "nc": 1,
   "names": ["sheep"],
-  "default_counting_class": 0
+  "default_counting_class": 0,
+  "classes_drift": false
 }
 ```
 
@@ -298,6 +299,7 @@ Schema:
 | `nc` | int | number of classes the model detects |
 | `names` | array[string] | ordered class names (index = class id) |
 | `default_counting_class` | int | class id counted by default (model property; `[default_counting_class]` is the fallback `counting_class_ids`) |
+| `classes_drift` | bool\|null | **(BL-96)** `false` = cross-check ran, no drift; `true` = `classes.yaml` `nc`/`names` differ from the deployed `.onnx` names; `null` = could not verify (`.onnx` missing → skip+INFO). Additive — the companion ignores it until updated. Set once-per-process by the `start()` startup cross-check (`app/src/main.py::start`) and written by `app/src/state.py::publish_model_classes_json`. |
 
 The companion's `counting_class_ids` proposals in `runtime-settings.json` are
 validated against `names`; unknown ids are dropped.
