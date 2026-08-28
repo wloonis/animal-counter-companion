@@ -82,15 +82,22 @@ curl http://<jetson_ip>:8090/api/identify
 
 The Android app never talks to the countingapp directly. It talks to the
 companion (HTTP, port 8090), which runs on the Jetson host. The companion talks
-to the countingapp (a K3s pod) **only** via files in the shared hostPath
-`/data/orin/files` (`/files` inside the pod):
+to the countingapp (a K3s pod) **only** via shared files on two hostPaths
+(BL-79 split — data vs config/contrôle):
 
-- companion **reads** `counting-history.jsonl` (written by countingapp) → serves
-  sessions/history/videos to the app.
-- companion **writes** `runtime-settings.json` (from the app's settings screen)
-  → countingapp hot-reloads at each recording start (no restart).
-- companion **writes** `.arret_requested` (from the app's shutdown button) →
-  countingapp stops cleanly after the current recording and powers off.
+- **`/data/orin/files`** (`/files` inside the pod) — **data**:
+  - companion **reads** `counting-history.jsonl` + the mp4 clips (written by
+    countingapp) → serves sessions/history/videos to the app.
+- **`/data/orin/conf`** (`/conf` inside the pod) — **config/contrôle**:
+  - companion **writes** `runtime-settings.json` (from the app's settings
+    screen) → countingapp hot-reloads at the next idle window (BL-86, no
+    restart).
+  - companion **writes** `.arret_requested` (from the app's shutdown button) →
+    countingapp stops cleanly after the current recording and powers off.
+  - companion **reads** `model-classes.json` (published read-only by countingapp
+    at startup) → `/api/classes` catalog of countable species (BL-78/82).
+  - companion **reads** `/files/snapshot.jpg` (written ~every 5s by countingapp,
+    BL-88) → `/api/snapshot` live preview for the mask-zone editor.
 
 See [`docs/IPC_CONTRACT.md`](docs/IPC_CONTRACT.md) for the full, authoritative
 contract. **Any change to those file formats is a coordinated change across both
@@ -161,8 +168,19 @@ Five sections:
   IP.
 - **Power** — "Arrêter le Jetson" button: the Jetson shuts down cleanly at the
   end of the current recording.
-- **Recording & tracking** — toggles to annotate videos (boxes, trails) and the
-  **counting line position** setting (which affects counting).
+- **Recording & tracking** — the runtime tuning, all hot-reloaded at the next
+  recording (no restart):
+  - *Tracking overlays* — toggles to annotate videos (boxes, trails).
+  - *Counting line* (BL-83/84) — orientation `vertical`|`horizontal` + a signed
+    offset slider centered at 0.
+  - *Counted species* (BL-82) — toggle which of the model's classes to count
+    (multi-species; `global = sum of per-species counters`).
+  - *Counting direction* (BL-92) — `auto` (default, auto-detect the dominant
+    crossing direction per run) or `manual` (`up`/`down`/`left`/`right`, gated
+    by the line orientation).
+  - *Mask zones* (BL-87/88) — draw, move, resize and **name** exclusion
+    rectangles over a live snapshot preview (`/api/snapshot`); detections whose
+    centroid falls inside a zone are dropped before tracking.
 - **About** — app version and Jetson companion version (with a warning on
   mismatch).
 
@@ -224,6 +242,7 @@ service `version`; the Android app checks it and warns on mismatch. Bump the
 | `GET` | `/api/startups` | Startup history lines (`?limit=50`) |
 | `GET` | `/api/videos` | Paginated video list (running recording is the synthetic first row) |
 | `GET` | `/api/video/<id>` | Range-streamed compressed `counting-<id>-*.mp4` (HTTP 200/206/416) |
+| `GET` | `/api/snapshot` | Raw-frame JPEG preview (`/files/snapshot.jpg`, BL-88) — canvas for the mask-zone editor |
 | `GET` | `/api/settings` | Current `runtime-settings.json` (`{}` if absent) |
 | `PUT` | `/api/settings` | PATCH-like merge into `runtime-settings.json` (atomic write) |
 | `GET` | `/api/classes` | Countable species catalog + current `counting_class_ids` selection (BL-82) |
@@ -242,30 +261,39 @@ can resume/partial-download large clips.
 
 ### Runtime-settings relay (hot-reload, no restart)
 
-`PUT /api/settings` writes `runtime-settings.json` (tracking toggles
-`draw_tracking` / `box_tracking` / `centroid_tracking` +
-`offset_counting_line` (BL-84: signed, 0 = centered) and `counting_line_orientation`
-(`"vertical"`\|`"horizontal"`, BL-84) — the counting-line orientation +
-décalage, and `counting_class_ids` — which species to count,
-BL-82). The write is a **PATCH-like merge** (only the keys
-present in the body are overwritten; unknown keys are ignored for
-forward-compat) and is **atomic** (temp file + `os.replace`, so the
-countingapp never reads a half-written file). The countingapp hot-reloads this
-file at each recording start — **no restart needed** to pick up new settings.
+`PUT /api/settings` writes `runtime-settings.json` in `/conf` (the config/contrôle
+hostPath, BL-79/80) — a **PATCH-like merge** (only the keys present in the body
+are overwritten; unknown keys are ignored for forward-compat) and **atomic**
+(temp file + `os.replace`, so the countingapp never reads a half-written file).
+The countingapp hot-reloads it at the **next idle window** (BL-86 — outside any
+recording, never mid-session) — **no restart needed** to pick up new settings.
 
-The counting-line orientation + signed offset are surfaced in the Réglages
-tab (BL-84): a vertical/horizontal selector + a signed offset slider centered
-at 0. The counting core (BL-83, sister repo) reads
-`counting_line_orientation` + the signed `offset_counting_line` and applies them
-at the next recording (hot-reload); the authoritative bound (line inside the
-image with a 200px margin) is clamped at use-time by the countingapp.
+Recognised keys:
+
+- *Global* (top-level): `draw_tracking` / `box_tracking` / `centroid_tracking`
+  (overlay toggles), `draw_mask_zones`, `counting_direction_mode`
+  (`"auto"`\|`"manual"`, BL-92), `counting_direction` (`up`/`down`/`left`/
+  `right`/`null`, manual only, BL-92).
+- *Per-model* (routed to `models[<active>]`, BL-89/90): `counting_class_ids`
+  (which species to count, BL-82), `counting_line_orientation`
+  (`"vertical"`\|`"horizontal"`, BL-84), `offset_counting_line` (signed,
+  0 = centered, BL-84), `mask_zones` (normalized exclusion rects `{x,y,w,h}` +
+  optional `name`, BL-87/88), and the BL-93 startup-only input keys
+  (`input_source` / `input_url` / `input_device` / `input_width` / `input_height` /
+  `output_fps`).
+
+`GET /api/settings` returns a **flat resolved view**: the global keys + the
+**active model's** per-model keys resolved from `models[<model_name>]` (the
+active model is read from `model-classes.json`). Legacy pre-BL-89 flat files (no
+`models` map) are handled transparently. See `docs/IPC_CONTRACT.md` for the
+authoritative routing spec.
 
 `GET /api/classes` (BL-82) exposes the countable species catalog
-(`model-classes.json`, published by the countingapp at startup — depends on
-the model deployed on **this** Jetson) as `classes:[{id,name}]` plus the
-current `counting_class_ids` selection, so the app's Réglages tab can list
-the species, show which are selected, and toggle them at hot-reload. `404`
-when the catalog is not yet published.
+(`model-classes.json`, published read-only by the countingapp at startup —
+depends on the model deployed on **this** Jetson) as `classes:[{id,name}]` plus
+the current `counting_class_ids` selection, so the app's Réglages tab can list
+the species, show which are selected, and toggle them at hot-reload. `404` when
+the catalog is not yet published.
 
 ### Power-off sentinel
 
