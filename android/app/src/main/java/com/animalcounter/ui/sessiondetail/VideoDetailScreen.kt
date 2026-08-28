@@ -233,8 +233,16 @@ private fun VideoMetadataCard(detail: VideoDetail?) {
                 color = MaterialTheme.colorScheme.primary,
             )
             Spacer(Modifier.height(8.dp))
-            KeyValueRow(R.string.detail_count_ltr, detail.countLeftToRight.toString())
-            KeyValueRow(R.string.detail_count_rtl, detail.countRightToLeft.toString())
+            // BL-85: orientation-aware directional counts. Horizontal line
+            // counts UP/DOWN (Bas→Haut / Haut→Bas); vertical (default)
+            // keeps the legacy LEFT/RIGHT (Gauche→Droite / Droite→Gauche).
+            if (detail.countingLineOrientation == "horizontal") {
+                KeyValueRow(R.string.detail_count_dtu, detail.countDownToUp.toString())
+                KeyValueRow(R.string.detail_count_utd, detail.countUpToDown.toString())
+            } else {
+                KeyValueRow(R.string.detail_count_ltr, detail.countLeftToRight.toString())
+                KeyValueRow(R.string.detail_count_rtl, detail.countRightToLeft.toString())
+            }
             KeyValueRow(R.string.detail_id_switch, detail.trackLost.toString())
             // Guard interventions (REID/mirror/resurrection/lost_buffer/...).
             val g = detail.guardInterventions
