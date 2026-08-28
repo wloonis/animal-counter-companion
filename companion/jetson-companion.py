@@ -560,6 +560,8 @@ class HistoryIndex:
         ids = self._video_order[offset:offset + limit]
         for vid in ids:
             obj = self._videos.get(vid) or {}
+            sid = obj.get("session_id")
+            sess = self._sessions.get(sid) if sid else None
             out.append({
                 "video_id": vid,
                 "filename": obj.get("filename"),
@@ -569,6 +571,7 @@ class HistoryIndex:
                 "session_id": obj.get("session_id"),
                 "ts": obj.get("ts"),
                 "status": "ready",
+                "counting_line_orientation": self._session_orientation(sess) if sess else "vertical",
             })
         return out, len(self._video_order)
 
@@ -601,15 +604,18 @@ class HistoryIndex:
             delta = int(count) - int(rsc)
         except (TypeError, ValueError):
             return None
+        rsid = hb.get("session_id")
+        rsess = self._sessions.get(rsid) if rsid else None
         return {
             "video_id": "counting-" + ts_stem,
             "filename": "counting-{}.mp4".format(ts_stem),
             "duration": None,
             "file_duration": None,
             "count_delta": delta,
-            "session_id": hb.get("session_id"),
+            "session_id": rsid,
             "ts": hb.get("ts"),
             "status": "running",
+            "counting_line_orientation": self._session_orientation(rsess) if rsess else "vertical",
         }
 
     def video_detail(self, video_id):
