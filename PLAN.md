@@ -54,7 +54,7 @@ BL-83 (sister repo) introduced horizontal counting-line orientation, emitting `c
 
 ### Docs
 
-- [ ] **Task 12: DOCUMENT new fields in docs/01_jetson_companion.md** `docs/01_jetson_companion.md` — (1) Update the version note (line ~74: `"version":"8"` → `"9"`) and the v-version bump history. (2) Update the endpoint table (line ~147): note that `/api/videos` rows + `/api/sessions` summaries now carry `counting_line_orientation`, and `/api/sessions/<id>` + `/api/videos/<id>` carry `count_down_to_up`/`count_up_to_down` + `counting_line_orientation`. (3) Update the curl example for `/api/videos` (line ~363) to include `counting_line_orientation` in the row JSON. (4) Add a note that `counting_line_orientation` defaults to `"vertical"` for pre-BL-83 sessions, and that UP/DOWN fields are companion-aggregated from `crossed` events (additive, alongside the countingapp's `session_end.counters` LEFT/RIGHT).
+- [x] **Task 12: DOCUMENT new fields in docs/01_jetson_companion.md** `docs/01_jetson_companion.md` — (1) Update the version note (line ~74: `"version":"8"` → `"9"`) and the v-version bump history. (2) Update the endpoint table (line ~147): note that `/api/videos` rows + `/api/sessions` summaries now carry `counting_line_orientation`, and `/api/sessions/<id>` + `/api/videos/<id>` carry `count_down_to_up`/`count_up_to_down` + `counting_line_orientation`. (3) Update the curl example for `/api/videos` (line ~363) to include `counting_line_orientation` in the row JSON. (4) Add a note that `counting_line_orientation` defaults to `"vertical"` for pre-BL-83 sessions, and that UP/DOWN fields are companion-aggregated from `crossed` events (additive, alongside the countingapp's `session_end.counters` LEFT/RIGHT).
 
 ## Validation
 
