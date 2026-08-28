@@ -349,8 +349,8 @@ Success
 
 If you can't use ADB:
 
-1. Copy `app-debug.apk` to the phone (Bluetooth, email, USB file transfer, a
-   file manager on the Jetson hotspot's `filebrowser` at `:8080`, etc.).
+1. Copy `app-debug.apk` to the phone (Bluetooth, email, USB file transfer,
+   `adb install app-debug.apk` from a PC with platform-tools, etc.).
 2. On the phone, open the APK with **My Files** (or any file manager).
 3. If prompted, enable **Install unknown apps** for the file manager
    (**Settings → Apps → [file manager] → Install unknown apps → Allow**).

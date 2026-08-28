@@ -200,6 +200,19 @@ published by the countingapp at startup (BL-78) plus the current
 | `PUT` | `/api/settings` | PATCH JSON | Merge the given keys into `runtime-settings.json` (atomic write); echoes the merged object. Recognised keys: `draw_tracking`, `box_tracking`, `centroid_tracking` (bool), `offset_counting_line` (signed int, loose `-300..300` — BL-84), `counting_line_orientation` (`"vertical"`\|`"horizontal"` — BL-84), `counting_class_ids` (`int[]`, subset of the model classes — BL-82), `mask_zones` (list of `{x,y,w,h}` normalized rects, optional `name` string — BL-88), `draw_mask_zones` (bool — BL-88), `counting_direction_mode` (`"auto"` \| `"manual"` — BL-92, global), `counting_direction` (`"up"` \| `"down"` \| `"left"` \| `"right"` \| `null`, manual only — BL-92, global). Unknown keys ignored (forward-compat); 400 on a type/range violation. A soft orientation-mismatch reject (400) fires when both `counting_direction` (non-null) and `counting_line_orientation` are present in the same PUT and the pair is inconsistent (horizontal line → up/down only, vertical line → left/right only); otherwise the value passes through and the authoritative reject+WARN stays in the countingapp. |
 | `GET` | `/api/classes` | — | Countable species catalog + current selection (BL-82): `{model_version, nc, classes:[{id,name}], default_counting_class, counting_class_ids}`. `404` when the countingapp has not published `model-classes.json` yet (not started / write pending) — the app shows "catalog unavailable" and can retry. |
 
+> **Per-model vs global routing (BL-89/90).** `GET /api/settings` returns a
+> **flat resolved view**: the global (top-level) keys + the **active model's**
+> per-model keys resolved from `models[<model_name>]` (the active model is read
+> from `model-classes.json`). `PUT /api/settings` routes each key accordingly:
+> per-model keys (`counting_class_ids`, `counting_line_orientation`,
+> `offset_counting_line`, `mask_zones`, + the BL-93 startup-only input keys
+> `input_source`/`input_url`/`input_device`/`input_width`/`input_height`/`output_fps`)
+> land under `models[<active>]`; global keys (`draw_tracking`,
+> `box_tracking`, `centroid_tracking`, `draw_mask_zones`,
+> `counting_direction_mode`, `counting_direction`) land at the top level. Legacy
+> pre-BL-89 flat files (no `models` map) are handled transparently. See
+> `docs/IPC_CONTRACT.md` for the authoritative routing spec.
+
 ### v4 — camera snapshot & mask zones (BL-88)
 
 The companion is bumped to **version `"8"`**. The Android app's « Zones de
@@ -256,11 +269,15 @@ sudo timedatectl set-ntp true
 
 ## Why port 8090
 
-Port **8080** is already bound by `filebrowser` on the Jetson (the
-file-management web UI), so the companion service cannot use it. **8090** is
-free. The port is configurable via the `COMPANION_PORT` environment variable
-in the systemd unit — change it in the playbook's `companion_port` var (or
-the unit's `Environment=` line) and redeploy if 8090 is ever taken.
+Port **8080** was historically bound by `filebrowser` (the file-management
+web UI) on the Jetson, so the companion used **8090** to avoid the conflict.
+`filebrowser` has since been removed (BL-95 — the companion's own
+`/api/snapshot` + `/api/videos` + `/api/sessions` endpoints replace it), so
+8080 is now free, but the companion stays on **8090** for stability (changing
+a working port buys nothing). The port is configurable via the
+`COMPANION_PORT` environment variable in the systemd unit — change it in the
+playbook's `companion_port` var (or the unit's `Environment=` line) and
+redeploy if 8090 is ever taken.
 
 ## Deploy
 
