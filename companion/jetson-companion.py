@@ -666,6 +666,8 @@ class HistoryIndex:
         # matching counting.py semantics).
         count_left = 0
         count_right = 0
+        count_down = 0  # UP direction (DOWN -> UP crossing)
+        count_up = 0    # DOWN direction (UP -> DOWN crossing)
         for e in evs:
             if e.get("event_type") == "crossed":
                 d = (e.get("detail") or {}).get("direction")
@@ -673,6 +675,10 @@ class HistoryIndex:
                     count_left += 1
                 elif d == "RIGHT":
                     count_right += 1
+                elif d == "UP":
+                    count_down += 1
+                elif d == "DOWN":
+                    count_up += 1
         # Guard interventions by type + track_lost count.
         guard_types = ("reid_suppress", "mirror_suppress",
                        "mirror_guard_enforce", "mirror_candidate",
@@ -750,6 +756,9 @@ class HistoryIndex:
             "status": "running" if running else "ready",
             "count_left_to_right": count_left,
             "count_right_to_left": count_right,
+            "count_down_to_up": count_down,
+            "count_up_to_down": count_up,
+            "counting_line_orientation": self._session_orientation(sess),
             "guard_interventions": guard_interventions,
             "track_lost": track_lost,
             "events": evs,
