@@ -39,7 +39,10 @@
 #         counting_line_orientation str "vertical"|"horizontal" (BL-83),
 #         counting_class_ids list[int] subset of model-classes names — BL-82,
 #         mask_zones list[{x,y,w,h} normalized rects (BL-88),
-#         draw_mask_zones bool (BL-88));
+#         draw_mask_zones bool (BL-88),
+#         counting_direction_mode str "auto"|"manual" (BL-92, global),
+#         counting_direction str "up"|"down"|"left"|"right"|null
+#            manual-only (BL-92, global));
 #        validated, atomic write.
 #   GET  /api/snapshot        -> camera preview JPEG (image/jpeg, no-store)
 #        served read-only from /files/snapshot.jpg (written by the
@@ -1027,6 +1030,9 @@ _GLOBAL_SETTINGS_KEYS = (
     "box_tracking",
     "centroid_tracking",
     "draw_mask_zones",
+    # BL-92 — counting direction toggles (global, top-level).
+    "counting_direction_mode",
+    "counting_direction",
 )
 
 
