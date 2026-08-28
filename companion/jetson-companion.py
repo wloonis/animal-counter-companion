@@ -1159,6 +1159,14 @@ def _validate_settings_payload(payload):
         inside the image with a 200px margin, clamped at use-time by
         the counting app)
       - counting_line_orientation : str "vertical" | "horizontal" (BL-83)
+      - counting_direction_mode : str "auto" | "manual" (BL-92,
+        global; default "auto")
+      - counting_direction : str "up" | "down" | "left" | "right"
+        | null (BL-92, manual only, default null). When non-null AND
+        counting_line_orientation is present in the same PUT, a soft
+        self-contained mismatch check runs (horizontal → up/down only,
+        vertical → left/right only); otherwise the value passes through
+        unchanged and the countingapp does the authoritative reject+WARN.
       - counting_class_ids   : list[int] (BL-82), each a valid class id
         (0..nc-1 of model-classes.json when available; else non-negative int)
       - mask_zones           : list of axis-aligned normalized rects
@@ -1213,6 +1221,52 @@ def _validate_settings_payload(payload):
             errors.append(
                 "counting_line_orientation must be 'vertical' or 'horizontal', "
                 "got {!r}".format(val))
+    if "counting_direction_mode" in payload:
+        val = payload["counting_direction_mode"]
+        # BL-92: string "auto" | "manual". Reject bool (a bool is not a
+        # str) and non-str so the counting app never re-coerces, mirroring
+        # the counting_line_orientation block.
+        if isinstance(val, bool) or not isinstance(val, str):
+            errors.append(
+                "counting_direction_mode must be a string, got {}".format(
+                    type(val).__name__))
+        elif val not in ("auto", "manual"):
+            errors.append(
+                "counting_direction_mode must be 'auto' or 'manual', "
+                "got {!r}".format(val))
+    if "counting_direction" in payload:
+        val = payload["counting_direction"]
+        # BL-92: null is valid (manual not yet set / auto mode). Otherwise a
+        # string "up" | "down" | "left" | "right". Reject bool/non-str so
+        # the counting app never re-coerces.
+        if val is not None:
+            if isinstance(val, bool) or not isinstance(val, str):
+                errors.append(
+                    "counting_direction must be a string or null, "
+                    "got {}".format(type(val).__name__))
+            elif val not in ("up", "down", "left", "right"):
+                errors.append(
+                    "counting_direction must be 'up', 'down', 'left' or "
+                    "'right' (or null), got {!r}".format(val))
+    # BL-92 soft self-contained orientation-mismatch check: only runs
+    # when BOTH counting_direction (non-null) and counting_line_orientation
+    # are present in the SAME PUT payload (cheap, no extra file read).
+    # Otherwise the value passes through unchanged and the authoritative
+    # reject+WARN stays in the countingapp's main.py (per the contract).
+    cd = payload.get("counting_direction")
+    clo = payload.get("counting_line_orientation")
+    if (cd is not None and isinstance(cd, str)
+            and clo is not None and isinstance(clo, str)
+            and cd in ("up", "down", "left", "right")
+            and clo in ("vertical", "horizontal")):
+        if clo == "horizontal" and cd not in ("up", "down"):
+            errors.append(
+                "counting_direction {!r} mismatches counting_line_orientation "
+                "'horizontal' (expected 'up' or 'down')".format(cd))
+        elif clo == "vertical" and cd not in ("left", "right"):
+            errors.append(
+                "counting_direction {!r} mismatches counting_line_orientation "
+                "'vertical' (expected 'left' or 'right')".format(cd))
     if "counting_class_ids" in payload:
         val = payload["counting_class_ids"]
         if not isinstance(val, list):
