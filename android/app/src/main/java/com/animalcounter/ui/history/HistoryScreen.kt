@@ -38,7 +38,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
@@ -410,7 +412,16 @@ private fun VideoRowCard(row: VideoRow, onClick: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 val delta = row.countDelta ?: 0
-                val arrow = if (delta >= 0) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward
+                // BL-85: arrow reflects the counting-line orientation.
+                // Horizontal line → positive delta (UP, +1) up arrow,
+                // negative (DOWN, −1) down arrow. Vertical line (default) →
+                // positive (LEFT, +1) back/left arrow, negative (RIGHT, −1)
+                // forward/right arrow.
+                val arrow = if (row.countingLineOrientation == "horizontal") {
+                    if (delta >= 0) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward
+                } else {
+                    if (delta >= 0) Icons.AutoMirrored.Filled.ArrowBack else Icons.Filled.ArrowForward
+                }
                 val arrowTint = if (delta >= 0)
                     MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.tertiary
