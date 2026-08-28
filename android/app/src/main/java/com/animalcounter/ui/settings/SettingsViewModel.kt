@@ -26,6 +26,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.animalcounter.data.DEFAULT_BOX_TRACKING
 import com.animalcounter.data.DEFAULT_CENTROID_TRACKING
+import com.animalcounter.data.DEFAULT_COUNTING_DIRECTION
+import com.animalcounter.data.DEFAULT_COUNTING_DIRECTION_MODE
 import com.animalcounter.data.DEFAULT_COUNTING_LINE_ORIENTATION
 import com.animalcounter.data.DEFAULT_DRAW_MASK_ZONES
 import com.animalcounter.data.DEFAULT_DRAW_TRACKING
@@ -144,6 +146,32 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     /** (BL-84) Counting-line orientation: "vertical" | "horizontal". */
     val countingLineOrientation: StateFlow<String> =
         _countingLineOrientation.asStateFlow()
+
+    // ---- BL-92 counting direction (mode + manual direction) ----
+
+    private val _countingDirectionMode =
+        MutableStateFlow(DEFAULT_COUNTING_DIRECTION_MODE)
+    /**
+     * (BL-92) Counting-direction mode (`counting_direction_mode`):
+     * `"auto"` (the countingapp derives the direction from the line
+     * orientation) or `"manual"` (the operator pins [countingDirection]).
+     * Defaults to `"auto"`.
+     */
+    val countingDirectionMode: StateFlow<String> =
+        _countingDirectionMode.asStateFlow()
+
+    private val _countingDirection =
+        MutableStateFlow<String?>(DEFAULT_COUNTING_DIRECTION)
+    /**
+     * (BL-92) Manual counting direction (`counting_direction`):
+     * `"up"` | `"down"` | `"left"` | `"right"` | `null`. Only consulted when
+     * [countingDirectionMode] == `"manual"`; `null` means "not yet set /
+     * auto mode". The Android UI gates the selector on the live
+     * [countingLineOrientation] (horizontal → up/down, vertical →
+     * left/right) so an invalid combo cannot be submitted from the app.
+     */
+    val countingDirection: StateFlow<String?> =
+        _countingDirection.asStateFlow()
 
     // ---- BL-88 mask zones + snapshot ----
 
@@ -326,6 +354,8 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             _centroidTracking.value = repo.centroidTracking.first()
             _offsetCountingLine.value = repo.offsetCountingLine.first()
             _countingLineOrientation.value = repo.countingLineOrientation.first()
+            _countingDirectionMode.value = repo.countingDirectionMode.first()
+            _countingDirection.value = repo.countingDirection.first()
             _drawMaskZones.value = repo.drawMaskZones.first()
             loaded = true
             // Best-effort sync from the Jetson: if reachable, the on-device
@@ -437,6 +467,17 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
                 s.countingLineOrientation?.let {
                     _countingLineOrientation.value = it
                     repo.setCountingLineOrientation(it)
+                }
+                // (BL-92) counting direction (mode + manual direction).
+                s.countingDirectionMode?.let {
+                    _countingDirectionMode.value = it
+                    repo.setCountingDirectionMode(it)
+                }
+                // `counting_direction` may legitimately be null (auto mode /
+                // not yet set); the echo carries the resolved value verbatim.
+                if (s.countingDirection != null || s.countingDirectionMode == "manual") {
+                    _countingDirection.value = s.countingDirection
+                    repo.setCountingDirection(s.countingDirection)
                 }
                 // (BL-88) mask zones are kept in-memory only (not cached);
                 // draw_mask_zones is mirrored to DataStore like the tracking
@@ -718,6 +759,36 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * (BL-92) Counting-direction mode change (`"auto"` | `"manual"`).
+     * Canonicalizes the value (any non-`"manual"` string → `"auto"`,
+     * mirroring [SettingsRepository.setCountingDirectionMode] + the
+     * countingapp fallback). Updates the local flow + cache, then
+     * schedules a debounced push carrying the new mode + the current
+     * manual direction.
+     */
+    fun setCountingDirectionMode(value: String) {
+        val canonical = if (value == "manual") "manual" else "auto"
+        _countingDirectionMode.value = canonical
+        viewModelScope.launch { repo.setCountingDirectionMode(canonical) }
+        scheduleSettingsPush()
+    }
+
+    /**
+     * (BL-92) Manual counting-direction change (`"up"` | `"down"` |
+     * `"left"` | `"right"` | `null`). `null` (and any blank string) clears
+     * the pinned direction (auto mode / not yet set). Updates the local
+     * flow + cache, then schedules a debounced push. The Android UI gates
+     * the selector on the live [countingLineOrientation] so a mismatched
+     * pair cannot be constructed from the app.
+     */
+    fun setCountingDirection(value: String?) {
+        val canonical = value?.trim()?.ifBlank { null }
+        _countingDirection.value = canonical
+        viewModelScope.launch { repo.setCountingDirection(canonical) }
+        scheduleSettingsPush()
+    }
+
+    /**
      * Coalesce tracking/offset edits into a single debounced `PUT
      * /api/settings` carrying all four current values (a PATCH that rewrites
      * the four UI-managed keys). Best-effort: a push failure does not reset
@@ -734,6 +805,8 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
                 centroidTracking = _centroidTracking.value,
                 offsetCountingLine = _offsetCountingLine.value,
                 countingLineOrientation = _countingLineOrientation.value,
+                countingDirectionMode = _countingDirectionMode.value,
+                countingDirection = _countingDirection.value,
             )
             JetsonConnectionManager.putSettings(body)
         }
